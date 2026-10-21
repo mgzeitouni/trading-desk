@@ -640,7 +640,7 @@ function render(snap, storedAt){
     : `<div class="empty"><b>Nothing open</b>No legs are working. The first spread goes on when all three gates above are green.</div>`;
 
   const allTr=snap.trades||[];
-  const tr=allTr.filter(t=>t.close_date);                 // open trades live in "Open positions", not here
+  const tr=allTr.filter(t=>t.close_date && t.close_date>=(EQ_SINCE||''));   // open trades live in "Open positions"; closed before the restart are hidden
   const nOpen=allTr.length-tr.length;
   const realised=tr.reduce((a,t)=>a+(+t.pnl||0),0);
   $('trWrap').innerHTML = tr.length
@@ -648,7 +648,7 @@ function render(snap, storedAt){
       + tr.map(t=>`<tr><td class="mono">${esc(t.close_date)}</td><td>${esc(t.structure)}</td>
           <td class="mono">${esc(t.exit_reason||'—')}</td>
           <td class="num mono ${(+t.pnl||0)<0?'neg':'pos'}">${fmtUsd(+t.pnl||0)}</td></tr>`).join('')
-      + `</tbody></table><div class="cap" style="margin:12px 0 0">Realised to date ${fmtUsd(realised)}.</div>`
+      + `</tbody></table><div class="cap" style="margin:12px 0 0">Realised ${EQ_SINCE?`since ${EQ_SINCE}`:'to date'} ${fmtUsd(realised)}.</div>`
     : `<div class="empty"><b>No closed trades yet</b>${nOpen?`${nOpen} spread${nOpen>1?'s are':' is'} still open — ${nOpen>1?'they move':'it moves'} here with realised P&amp;L when closed.`:'Nothing has been traded in this account to date.'}</div>`;
 
   const q=snap.pending||[];
