@@ -279,8 +279,9 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
       <div class="cap" style="margin:6px 0 0" id="acctNote">Awaiting the live read.</div>
       <dl class="stats" id="acctBase" style="grid-template-columns:repeat(2,1fr); margin-top:12px">
         <div class="stat"><dt>Base to keep</dt><dd class="mono" id="baseVal">—</dd><div class="sn" id="baseNote">1.4 × one spread’s collateral</div></div>
-        <div class="stat"><dt>Above base</dt><dd class="mono" id="aboveVal">—</dd><div class="sn" id="aboveNote">withdraw only from this</div></div>
+        <div class="stat"><dt>Above base</dt><dd class="mono" id="aboveVal">—</dd><div class="sn" id="aboveNote">available to take as income</div></div>
       </dl>
+      <p class="cap" style="margin:8px 0 0">Keep at least the base in the account so the strategy can keep trading, with a buffer for a bad month. Anything above it can be taken out as income or a distribution. The base is 1.4× the collateral for one spread, so it rises when the index rises.</p>
       <div class="seg" role="tablist" aria-label="Account chart mode" style="margin-top:14px">
         <button type="button" role="tab" aria-selected="true" class="on" data-mode="pnl">P&amp;L</button>
         <button type="button" role="tab" aria-selected="false" data-mode="value">Value</button>
@@ -631,7 +632,7 @@ function render(snap, storedAt){
   $('baseVal').textContent = fmtUsd(base);
   $('baseNote').textContent = `${BASE_MULT} × ~${fmtUsd(oneLoss)} collateral${xsp?` at XSP ${fmt2(xsp)}`:''}`;
   $('aboveVal').textContent = fmtUsd(above); $('aboveVal').className = 'mono '+(above<0?'neg':'pos');
-  $('aboveNote').textContent = above>=0 ? 'withdraw only from this' : 'below base — don’t withdraw';
+  $('aboveNote').textContent = above>=0 ? 'available to take as income' : 'below base — take nothing out';
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
   drawVix($('vixWrap'), days);
