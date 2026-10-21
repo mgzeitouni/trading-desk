@@ -651,7 +651,8 @@ function render(snap, storedAt){
       + `</tbody></table><div class="cap" style="margin:12px 0 0">Realised ${EQ_SINCE?`since ${EQ_SINCE}`:'to date'} ${fmtUsd(realised)}.</div>`
     : `<div class="empty"><b>No closed trades yet</b>${nOpen?`${nOpen} spread${nOpen>1?'s are':' is'} still open — ${nOpen>1?'they move':'it moves'} here with realised P&amp;L when closed.`:'Nothing has been traded in this account to date.'}</div>`;
 
-  const q=snap.pending||[];
+  const live=o=>['awaiting_approval','approved','submitting','submitted'].includes(o.status);
+  const q=(snap.pending||[]).filter(o=>live(o) || String(o.created_at).slice(0,10)>=(EQ_SINCE||''));   // older orders hidden after a restart; working ones always shown
   const chipFor=st=>({awaiting_approval:'wait',approved:'acc',submitting:'acc',submitted:'acc',filled:'ok',dry_run:'ok',
                       rejected:'bad',expired:'',cancelled:'',failed:'bad',book_failed:'bad'}[st]||'');
   const label=st=>({awaiting_approval:'awaiting approval',approved:'approved — submits next run',submitting:'submitting',
