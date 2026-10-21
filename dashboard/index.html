@@ -198,6 +198,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
 <nav class="tabs" aria-label="Site" id="nav">
   <span id="acctTabs" style="display:flex;gap:4px"></span>
   <a href="#rules">Rules</a>
+  <a href="../strategy/">Strategy</a>
   <span class="sp"></span>
   <span class="who" id="who"></span>
   <button type="button" class="lnk" id="signOut" hidden>Sign out</button>
@@ -408,9 +409,11 @@ function drawVix(el, days){
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
 }
 
-let EQ_MODE='pnl', EQ_DATA=null;
+let EQ_MODE='pnl', EQ_DATA=null, EQ_SINCE=null;
 function seriesFor(mode, days, flows){
-  const rows=days.filter(r=>r.account_value!=null);
+  const since=EQ_SINCE||'';                                  // account chart restarts at the latest 'restart' cash flow
+  const rows=days.filter(r=>r.account_value!=null && r.d>=since);
+  flows=(flows||[]).filter(f=>f.d>=since);
   if(!rows.length) return [];
   const byDay={}; (flows||[]).forEach(f=>{ byDay[f.d]=(byDay[f.d]||0)+(+f.amount); });
   const firstD=rows[0].d;
@@ -620,6 +623,7 @@ function render(snap, storedAt){
 
   $('acctVal').textContent = fmtUsd(acct);
   $('acctNote').textContent = d.d ? `Cash ${fmtUsd(+d.cash||0)}${xsp?` · XSP ${fmt2(xsp)}`:''} · ${(S.status||'').replace('_',' ')} · last check ${d.d}` : '';
+  EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
   drawVix($('vixWrap'), days);
 
