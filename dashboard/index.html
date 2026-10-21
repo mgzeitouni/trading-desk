@@ -281,7 +281,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <div class="stat"><dt>Base to keep</dt><dd class="mono" id="baseVal">—</dd><div class="sn" id="baseNote">1.4 × one spread’s collateral</div></div>
         <div class="stat"><dt>Above base</dt><dd class="mono" id="aboveVal">—</dd><div class="sn" id="aboveNote">available to take as income</div></div>
       </dl>
-      <p class="cap" style="margin:8px 0 0">Keep at least the base in the account so the strategy can keep trading, with a buffer for a bad month. Anything above it can be taken out as income or a distribution. The base is 1.4× the collateral for one spread, so it rises when the index rises.</p>
+      <p class="cap" style="margin:8px 0 0">Keep at least the base in the account so the strategy can keep trading, with a buffer for a bad month. Anything above it can be taken out as income or a distribution. The base is 1.4× one spread’s collateral for each of your target contracts (set in Account settings), so it rises when the index rises.</p>
       <div class="seg" role="tablist" aria-label="Account chart mode" style="margin-top:14px">
         <button type="button" role="tab" aria-selected="true" class="on" data-mode="pnl">P&amp;L</button>
         <button type="button" role="tab" aria-selected="false" data-mode="value">Value</button>
@@ -422,15 +422,17 @@ function seriesFor(mode, days, flows){
   if(!rows.length) return [];
   const byDay={}; (flows||[]).forEach(f=>{ byDay[f.d]=(byDay[f.d]||0)+(+f.amount); });
   const firstD=rows[0].d;
-  let contrib=0; Object.keys(byDay).forEach(d=>{ if(d<firstD) contrib+=byDay[d]; });   // money in before the first snapshot
+  let contrib=0, wd=0;                                       // net deposits; withdrawals taken out (positive $)
+  Object.keys(byDay).forEach(d=>{ if(d<firstD){ contrib+=byDay[d]; if(byDay[d]<0) wd-=byDay[d]; } });   // money in/out before the first snapshot
   const out=[]; let idx=100, prevV=null;
   rows.forEach((r,i)=>{
     const V=+r.account_value, F=byDay[r.d]||0;
     if(i===0 && contrib===0) contrib=V;                        // no flow history: treat the first snapshot as the deposit
-    else contrib+=F;
+    else { contrib+=F; if(F<0) wd-=F; }
     if(prevV!=null && prevV>0){ idx*= (V-F)/prevV; }         // flow assumed to land before the day's close
     prevV=V;
-    out.push({d:r.d, value:V, pnl:V-contrib, contrib, twr:idx-100});
+    // withdrawals neither lower P&L (contrib falls by the same amount) nor the value line (added back as vadj)
+    out.push({d:r.d, value:V, vadj:V+wd, wd, dep:contrib+wd, pnl:V-contrib, contrib, twr:idx-100});
   });
   return out;
 }
@@ -438,12 +440,12 @@ function drawEquity(el,days,flows){
   EQ_DATA={days,flows};
   const ser=seriesFor(EQ_MODE, days, flows);
   if(!ser.length){ el.innerHTML='<div class="empty" style="padding:16px 0 4px"><b>No history yet</b>The curve starts with the first daily check.</div>'; return; }
-  const key={value:'value',pnl:'pnl',twr:'twr'}[EQ_MODE];
+  const key={value:'vadj',pnl:'pnl',twr:'twr'}[EQ_MODE];
   const isPct=EQ_MODE==='twr';
   const fmtV=v=>isPct?`${v>=0?'+':''}${v.toFixed(2)}%`:fmtUsd(v);
   const vals=ser.map(r=>r[key]);
   const isVal=EQ_MODE==='value';
-  const rangeVals=isVal?vals.concat(ser.map(r=>r.contrib)):vals;
+  const rangeVals=isVal?vals.concat(ser.map(r=>r.dep)):vals;
   const W=420,H=170,L=58,R=14,T=14,B=30, n=ser.length;
   const first=vals[0], last=vals[n-1];
   let lo=Math.min(...rangeVals,isPct||EQ_MODE==='pnl'?0:Infinity), hi=Math.max(...rangeVals,isPct||EQ_MODE==='pnl'?0:-Infinity);
@@ -467,14 +469,14 @@ function drawEquity(el,days,flows){
   const hover = `<line class="eq-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" stroke-width="1" opacity="0"/>`
               + `<circle class="eq-hl" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2" opacity="0"/>`;
   const dep=ser[n-1].contrib;
-  const gain=ser[n-1].value-dep, gainPct=dep>0?gain/dep*100:0;
+  const lastR=ser[n-1], gain=lastR.value-dep, gainPct=lastR.dep>0?gain/lastR.dep*100:0;   // % of total deposited, so withdrawals don't inflate it
   const cls=v=>v<0?'neg':v>0?'pos':'';
   const sgn=v=>v>=0?'+':'';
-  // value mode: net deposits drawn as a dashed step line — the cost basis the value is judged against
-  const depPath = isVal ? ser.map((r,i)=>{ const x=xs(i).toFixed(1), y=ys(r.contrib).toFixed(1);
+  // value mode: value with withdrawals added back, against total deposited (dashed step line)
+  const depPath = isVal ? ser.map((r,i)=>{ const x=xs(i).toFixed(1), y=ys(r.dep).toFixed(1);
       return i? `H${x}V${y}` : `M${x},${y}`; }).join('') : '';
   const depLine = isVal ? `<path d="${depPath}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="4 4" opacity=".75"/>` : '';
-  const head = isVal ? `Value ${fmtUsd(ser[n-1].value)} vs ${fmtUsd(dep)} deposited: <b class="${cls(gain)}">${sgn(gain)}${fmtUsd(gain)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b></span><span><i class="sw" style="background:var(--ink-2);opacity:.75"></i> Net deposits`
+  const head = isVal ? `Value ${fmtUsd(lastR.vadj)}${lastR.wd?` incl. ${fmtUsd(lastR.wd)} withdrawn`:''} vs ${fmtUsd(lastR.dep)} deposited: <b class="${cls(gain)}">${sgn(gain)}${fmtUsd(gain)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b></span><span><i class="sw" style="background:var(--ink-2);opacity:.75"></i> Deposited`
              : EQ_MODE==='pnl'  ? `P&amp;L after ${fmtUsd(dep)} of net deposits: <b class="${cls(last)}">${sgn(last)}${fmtUsd(last)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b>`
              :                    `Time-weighted return (deposits neutralised): <b class="${last<0?'neg':last>0?'pos':''}">${fmtV(last)}</b>`;
   el.innerHTML=`<div class="lg" style="margin:0 0 6px"><span><i class="sw" style="background:var(--accent)"></i> ${head}</span></div>
@@ -491,9 +493,11 @@ function drawEquity(el,days,flows){
       hl.setAttribute('cx',xs(i)); hl.setAttribute('cy',ys(r[key])); hl.setAttribute('opacity','1');
       const pnl=r.value-r.contrib;
       showTip(`<b>${esc(fmtD(r.d))}</b>
-        <div class="r"><span>Value</span><span>${fmtUsd(r.value)}</span></div>
+        <div class="r"><span>Account value</span><span>${fmtUsd(r.value)}</span></div>
+        ${r.wd?`<div class="r"><span>Withdrawn to date</span><span>${fmtUsd(r.wd)}</span></div>
+        <div class="r"><span>Value incl. withdrawals</span><span>${fmtUsd(r.vadj)}</span></div>`:''}
         <div class="r"><span>Net deposits</span><span>${fmtUsd(r.contrib)}</span></div>
-        <div class="r"><span>P&amp;L</span><span class="${pnl<0?'neg':pnl>0?'pos':''}">${signed(pnl)} (${pct(pnl,r.contrib)})</span></div>
+        <div class="r"><span>P&amp;L</span><span class="${pnl<0?'neg':pnl>0?'pos':''}">${signed(pnl)} (${pct(pnl,r.dep)})</span></div>
         <div class="r"><span>Time-weighted</span><span>${r.twr>=0?'+':''}${r.twr.toFixed(2)}%</span></div>`,
         b.left+b.width/2, b.top);
     });
@@ -574,7 +578,7 @@ function renderSpread(t, pos, xsp){
 function render(snap, storedAt){
   const S=snap.strategy||{}, days=snap.days||[], d=days[days.length-1]||{};
   const A=snap.account||{}, V=snap.viewer||{};
-  const cap = +A.contracts || 1;
+  const cap = +A.contracts || 1, tgt = +A.target_contracts || 1;
   $('acctCap').textContent = `${A.display_name||''}'s Robinhood account${A.rh_account_number?' '+(String(A.rh_account_number).startsWith('••')?A.rh_account_number:'••••'+String(A.rh_account_number).slice(-4)):' (account number not set yet)'}.`;
   renderSettings(snap);
   drawRules(S.rules);
@@ -628,9 +632,9 @@ function render(snap, storedAt){
 
   $('acctVal').textContent = fmtUsd(acct);
   $('acctNote').textContent = d.d ? `Cash ${fmtUsd(+d.cash||0)}${xsp?` · XSP ${fmt2(xsp)}`:''} · ${(S.status||'').replace('_',' ')} · last check ${d.d}` : '';
-  const base = BASE_MULT*oneLoss, above = acct-base;                       // base to keep = 1.4 × one spread's collateral
+  const base = BASE_MULT*oneLoss*tgt, above = acct-base;                   // base to keep = 1.4 × one spread's collateral × target contracts
   $('baseVal').textContent = fmtUsd(base);
-  $('baseNote').textContent = `${BASE_MULT} × ~${fmtUsd(oneLoss)} collateral${xsp?` at XSP ${fmt2(xsp)}`:''}`;
+  $('baseNote').textContent = `${tgt} contract${tgt>1?'s':''} × ${BASE_MULT} × ~${fmtUsd(oneLoss)} collateral${xsp?` at XSP ${fmt2(xsp)}`:''}`;
   $('aboveVal').textContent = fmtUsd(above); $('aboveVal').className = 'mono '+(above<0?'neg':'pos');
   $('aboveNote').textContent = above>=0 ? 'available to take as income' : 'below base — take nothing out';
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
@@ -828,6 +832,14 @@ function renderSettings(snap){
       <div class="msg" id="sContractsMsg"></div>
     </div>
     <div>
+      <h3>Target contracts</h3>
+      <div class="row"><input class="f num" id="sTarget" type="number" min="1" max="10" step="1" value="${esc(A.target_contracts||1)}" ${canEdit?'':'disabled'} aria-label="Contracts you want to keep running">
+        <span class="kv">contract${(A.target_contracts||1)>1?'s':''} to keep running</span>
+        ${canEdit?'<button class="btn sm" id="sTargetSave">Save</button>':''}</div>
+      <p class="cap" style="margin-top:8px">Sets the base to keep on the Account card: 1.4 × one spread’s collateral per contract. Money above it can be taken as income. Display only; the bot still sizes by the cap above. 1–10.</p>
+      <div class="msg" id="sTargetMsg"></div>
+    </div>
+    <div>
       <h3>Trading</h3>
       <div class="kv">Status <span class="pill mono ${esc(status)}">${esc(status.replace('_',' ').toUpperCase())}</span>${S.halt_reason&&status==='halted'?` <span style="color:var(--muted)">— ${esc(S.halt_reason)}</span>`:''}</div>
       <div class="row" style="margin-top:8px">
@@ -879,6 +891,12 @@ function renderSettings(snap){
     if(!Number.isInteger(n) || n<1 || n>10) return msg('sContractsMsg','Enter a whole number from 1 to 10.',false);
     try{ await api('settings',{contracts:n}); msg('sContractsMsg',`Saved — ${n} contract${n>1?'s':''} from the next entry.`,true); refresh(); }
     catch(e){ msg('sContractsMsg',e.message,false); }
+  });
+  on('sTargetSave', async () => {
+    const n = +$('sTarget').value;
+    if(!Number.isInteger(n) || n<1 || n>10) return msg('sTargetMsg','Enter a whole number from 1 to 10.',false);
+    try{ await api('settings',{target_contracts:n}); msg('sTargetMsg',`Saved — base now covers ${n} contract${n>1?'s':''}.`,true); refresh(); }
+    catch(e){ msg('sTargetMsg',e.message,false); }
   });
   on('sEmailSave', async () => {
     try{ await api('settings',{notify_email:$('sEmail').value.trim()}); msg('sEmailMsg','Saved.',true); }
