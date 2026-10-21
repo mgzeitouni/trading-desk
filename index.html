@@ -39,13 +39,13 @@
     <div id="out"></div>
   </div>
   <div class="links">
-    <a href="https://mgzeitouni.github.io/volcarry-approve/dashboard/">Open the trading dashboard →</a>
+    <a href="https://mgzeitouni.github.io/trading-desk/dashboard/">Open the trading dashboard →</a>
   </div>
 </main>
 <script>
 (function(){
   const API = "https://bqsbxaptzauxfjxptgfo.supabase.co/functions/v1/approve";
-  const DASH = "https://mgzeitouni.github.io/volcarry-approve/dashboard/";
+  const DASH = "https://mgzeitouni.github.io/trading-desk/dashboard/";
   const q = new URLSearchParams(location.search);
   const id = Number(q.get("id")), code = (q.get("code")||"").trim(), action = q.get("action") || "approve";
   const $ = s => document.querySelector(s);
