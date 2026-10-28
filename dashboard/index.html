@@ -117,6 +117,8 @@ td.num + td:not(.num), th.num + th:not(.num){padding-left:20px;}
 .stat{background:var(--surface); padding:10px 12px;}
 .stat dt{font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); font-weight:600;}
 .stat dd{margin:3px 0 0; font-size:17px; font-weight:600; letter-spacing:-.01em;}
+/* open-spread tiles: values sit on one baseline across a row even when a label wraps */
+#spreadWrap .stat{display:flex; flex-direction:column;} #spreadWrap .stat dt{margin-bottom:auto;}
 .stat .sn{font-size:11.5px; color:var(--muted); margin-top:1px;}
 .neg{color:var(--crit)} .pos{color:var(--good)}
 .chip{display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:600; letter-spacing:.04em;
@@ -660,7 +662,7 @@ function renderSpread(t, pos, xsp){
   el.innerHTML = `<div class="kv" style="margin-bottom:10px"><b>${esc(t.structure)}</b> · opened ${esc(t.open_date)}${qty>1?` · ${qty} contracts`:''}</div>
     <dl class="stats" style="margin-top:0">
       ${kv('Credit', fmt2(credit))}
-      ${kv('Cost to close (mark)', cost!=null?fmt2(cost):'—', cost!=null&&cost>=stop?'neg':'')}
+      ${kv('Cost to close', cost!=null?fmt2(cost):'—', cost!=null&&cost>=stop?'neg':'')}
       ${kv('Stop at 6×', fmt2(stop))}
       ${kv('Open P&L', pnl!=null?(pnl>=0?'+':'')+fmtUsd(pnl):'—', pnl!=null?(pnl<0?'neg':'pos'):'')}
       ${kv('XSP above short', dist!=null?`${dist.toFixed(1)}%`:'—', dist!=null&&dist<3?'neg':'')}
