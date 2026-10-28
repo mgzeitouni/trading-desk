@@ -286,20 +286,18 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <button type="button" role="tab" aria-selected="true" class="on" data-mode="pnl">P&amp;L</button>
         <button type="button" role="tab" aria-selected="false" data-mode="value">Value</button>
         <button type="button" role="tab" aria-selected="false" data-mode="twr">Time-weighted</button>
+        <button type="button" role="tab" aria-selected="false" data-mode="history">History</button>
       </div>
-      <figure style="margin-top:10px"><div id="eqWrap"></div></figure>
+      <figure style="margin-top:10px" id="eqFig"><div id="eqWrap"></div></figure>
+      <div id="ledgerWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
     </section>
 
     <section class="card span7">
       <h2>Open spread</h2>
       <p class="cap">The strategy’s spread right now, its stop and the next roll.</p>
       <div id="spreadWrap"><div class="empty">Loading…</div></div>
-      <h2 style="margin-top:18px">VIX, last 60 days</h2>
-      <div class="lg">
-        <span><i class="sw" style="background:var(--accent)"></i> VIX close</span>
-        <span><i class="sw" style="background:var(--crit)"></i> 32 gate</span>
-        <span><i class="sw" style="background:var(--ma)"></i> re-entry level (75% of 20-day high)</span>
-      </div>
+      <h2 style="margin-top:18px" id="chartH">Open spread P&amp;L</h2>
+      <div class="lg" id="chartLg"></div>
       <figure id="vixWrap"></figure>
     </section>
 
@@ -414,6 +412,94 @@ function drawVix(el, days){
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
 }
 
+// The open spread's P&L each day (credit - cost to close, from daily_state.spread_mark) from the day it opened to
+// expiry, between its max profit and its stop. VIX and XSP sit behind it, faint, each on its own unlabelled scale.
+// When flat, the section falls back to the VIX chart.
+const VIX_LG = `<span><i class="sw" style="background:var(--accent)"></i> VIX close</span>
+  <span><i class="sw" style="background:var(--crit)"></i> 32 gate</span>
+  <span><i class="sw" style="background:var(--ma)"></i> re-entry level (75% of 20-day high)</span>`;
+function drawPosition(el, days, t){
+  if(!t){ $('chartH').textContent='VIX, last 60 days'; $('chartLg').innerHTML=VIX_LG; drawVix(el, days); return; }
+  let nt={}; try{ nt = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
+  const credit=+(nt.credit ?? t.credit ?? 0), mult=100*(+(nt.qty||1));
+  const maxP=credit*mult, stopP=(credit-STOP_MULT*credit)*mult;
+  $('chartH').textContent='Open spread P&L';
+  $('chartLg').innerHTML=`<span><i class="sw" style="background:var(--accent)"></i> P&amp;L (credit − cost to close)</span>
+    <span><i class="sw" style="background:var(--good)"></i> max profit ${fmtUsd(maxP)}</span>
+    <span><i class="sw" style="background:var(--crit)"></i> stop ${fmtUsd(stopP)}</span>
+    <span style="opacity:.75"><i class="sw" style="background:var(--ma)"></i> VIX</span>
+    <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>`;
+  const rows=days.filter(r=>r.d>=t.open_date && r.spread_mark!=null).map(r=>({...r, pnl:(credit-(+r.spread_mark))*mult}));
+  if(!rows.length){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>No marks yet</b>The chart fills in as the bot records the spread’s value at each run.</div>'; return; }
+  const day=d=>Math.round(new Date(d+'T12:00:00')/864e5), d0=day(t.open_date), d1=Math.max(day(nt.expiry||t.open_date), d0+1);
+  const W=640,H=220,L=52,R=74,T=12,B=28;
+  const xs=d=>L+(day(d)-d0)/(d1-d0)*(W-L-R);
+  const pv=rows.map(r=>r.pnl).concat([maxP, stopP, 0]);
+  let lo=Math.min(...pv), hi=Math.max(...pv); const pad=(hi-lo)*0.06||10; lo-=pad; hi+=pad;
+  const ys=v=>T+(hi-v)/(hi-lo)*(H-T-B);
+  const step=[5,10,20,25,50,100,200,250,500,1000,2000,2500,5000].find(s=>(hi-lo)/s<=5)||10000;
+  const fmtD=x=>new Date(x+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const mono='font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace"';
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Open spread profit and loss by day, between its max profit and its stop, with VIX and XSP behind it">`;
+  for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step) s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--grid)"/><text x="${L-7}" y="${ys(v)+4}" text-anchor="end" ${mono}>${fmtUsd(v)}</text>`;
+  // VIX and XSP: own min-max scales over the shown days, drawn first and faint so the P&L line reads on top
+  // each in its own horizontal strip (fractions of the plot height) under the $0 line, where the P&L rarely goes;
+  // the scale spans at least `minFrac` of the level (VIX ±20%, XSP ±3%) so a quiet stretch stays a flat line
+  const overlay=(key,color,label,dec,minFrac,band)=>{
+    const pts=rows.filter(r=>r[key]!=null); if(!pts.length) return;
+    const v=pts.map(r=>+r[key]), mid=(Math.min(...v)+Math.max(...v))/2;
+    const half=Math.max((Math.max(...v)-Math.min(...v))/2*1.25, mid*minFrac), a=mid-half, b=mid+half;
+    const top=T+band[0]*(H-T-B), bot=T+band[1]*(H-T-B), oy=x=>top+(b-x)/(b-a)*(bot-top);
+    s+=`<path d="${pts.map((r,i)=>`${i?'L':'M'}${xs(r.d).toFixed(1)},${oy(+r[key]).toFixed(1)}`).join('')}" fill="none" stroke="${color}" stroke-width="1.25" opacity=".45" stroke-linejoin="round"/>`;
+    const p=pts[pts.length-1];
+    s+=`<circle cx="${xs(p.d)}" cy="${oy(+p[key])}" r="2.5" fill="${color}" opacity=".6"/><text x="${xs(p.d)+6}" y="${oy(+p[key])+3.5}" font-size="10" fill="${color}" opacity=".8" font-family="IBM Plex Mono,monospace">${label} ${(+p[key]).toFixed(dec)}</text>`;
+  };
+  overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60]); overlay('vix','var(--ma)','VIX',2,0.2,[0.62,0.92]);
+  s+=`<line x1="${L}" x2="${W-R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)"/>`;
+  [[maxP,'var(--good)','max'],[stopP,'var(--crit)','stop']].forEach(([v,c,lab])=>{
+    s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R+6}" y="${ys(v)+4}" font-size="10.5" fill="${c}" font-family="IBM Plex Mono,monospace">${lab} ${fmtUsd(v)}</text>`;
+  });
+  s+=`<path d="${rows.map((r,i)=>`${i?'L':'M'}${xs(r.d).toFixed(1)},${ys(r.pnl).toFixed(1)}`).join('')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  rows.forEach((r,i)=>{ s+=`<circle cx="${xs(r.d)}" cy="${ys(r.pnl)}" r="${i===rows.length-1?4.5:2.5}" fill="var(--accent)" stroke="var(--surface)" stroke-width="${i===rows.length-1?2:1}"/>`; });
+  [[t.open_date,'start','opened'],[nt.expiry,'end','expiry']].forEach(([d,anc,lab])=>{ if(d) s+=`<text x="${xs(d)}" y="${H-B+17}" text-anchor="${anc}" ${mono}>${lab} ${fmtD(d)}</text>`; });
+  s+=`<line class="vx-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" opacity="0"/>`;
+  const w=Math.max(8,(W-L-R)/(d1-d0));
+  rows.forEach((r,i)=>{ s+=`<rect class="hit" x="${xs(r.d)-w/2}" y="${T}" width="${w}" height="${H-T-B}" data-i="${i}"/>`; });
+  el.innerHTML=s+'</svg>';
+  const svg=el.querySelector('svg'), ch=svg.querySelector('.vx-ch');
+  svg.querySelectorAll('.hit').forEach(h=>h.addEventListener('pointerenter',()=>{
+    const r=rows[+h.dataset.i], b=h.getBoundingClientRect();
+    ch.setAttribute('x1',xs(r.d)); ch.setAttribute('x2',xs(r.d)); ch.setAttribute('opacity','1');
+    showTip(`<b>${esc(fmtD(r.d))}</b><div class="r"><span>P&amp;L</span><span>${r.pnl>=0?'+':''}${fmtUsd(r.pnl)}</span></div>`
+      + `<div class="r"><span>Cost to close</span><span>${fmt2(r.spread_mark)}</span></div>`
+      + (r.vix!=null?`<div class="r"><span>VIX close</span><span>${fmt2(r.vix)}</span></div>`:'')
+      + (r.xsp!=null?`<div class="r"><span>XSP</span><span>${fmt2(r.xsp)}</span></div>`:''), b.left+b.width/2, b.top);
+  }));
+  svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
+}
+
+// Account ledger: deposits and withdrawals (cash_flows, restart markers left out) and each closed spread's P&L.
+function renderLedger(flows, trades){
+  const rows=flows.filter(f=>f.kind!=='restart' && +f.amount!==0)
+      .map(f=>({d:f.d, type:+f.amount>0?'Deposit':'Withdrawal', amt:+f.amount, det:f.kind==='detected'?'found by the bot’s cash check':''}))
+    .concat(trades.filter(t=>t.close_date && t.pnl!=null)
+      .map(t=>({d:t.close_date, type:+t.pnl>=0?'Profit':'Loss', amt:+t.pnl, det:`${t.structure}${t.exit_reason?` · ${t.exit_reason}`:''}`})))
+    .sort((a,b)=>a.d<b.d?1:a.d>b.d?-1:0);
+  if(!rows.length){ $('ledgerWrap').innerHTML='<div class="empty"><b>Nothing yet</b>Deposits, withdrawals and closed spreads show up here.</div>'; return; }
+  const sum=f=>rows.filter(f).reduce((a,r)=>a+r.amt,0);
+  const dep=sum(r=>r.type==='Deposit'), wd=-sum(r=>r.type==='Withdrawal'), pl=sum(r=>r.type==='Profit'||r.type==='Loss');
+  const kv=(k,v,c='')=>`<div class="stat"><dt>${k}</dt><dd class="mono ${c}">${v}</dd></div>`;
+  $('ledgerWrap').innerHTML=`<p class="cap">Every deposit and withdrawal, and each spread’s profit or loss when it closed. All time, newest first.</p>
+    <dl class="stats" style="grid-template-columns:repeat(3,1fr); margin-top:0">
+      ${kv('Deposited', fmtUsd(dep))}${kv('Withdrawn', fmtUsd(wd))}${kv('Realised P&L', (pl>=0?'+':'')+fmtUsd(pl), pl<0?'neg':'pos')}</dl>
+    <div class="tscroll" style="max-height:320px; overflow-y:auto; margin-top:10px"><table style="min-width:0">
+      <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Detail</th></tr></thead><tbody>`
+    + rows.map(r=>`<tr><td class="mono" style="white-space:nowrap">${esc(r.d)}</td><td>${r.type}</td>
+        <td class="num mono ${r.type==='Loss'||r.type==='Withdrawal'?'neg':'pos'}" style="white-space:nowrap">${r.amt>=0?'+':''}${fmtUsd(r.amt)}</td>
+        <td style="color:var(--ink-2)">${esc(r.det)}</td></tr>`).join('')
+    + `</tbody></table></div>`;
+}
+
 let EQ_MODE='pnl', EQ_DATA=null, EQ_SINCE=null;
 function seriesFor(mode, days, flows){
   const since=EQ_SINCE||'';                                  // account chart restarts at the latest 'restart' cash flow
@@ -506,6 +592,9 @@ function drawEquity(el,days,flows){
 }
 document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.seg button').forEach(x=>{x.classList.toggle('on',x===b); x.setAttribute('aria-selected', x===b);});
+  const hist=b.dataset.mode==='history';                  // the History tab swaps the chart for the ledger table
+  $('eqFig').hidden=hist; $('ledgerWrap').hidden=!hist;
+  if(hist) return;
   EQ_MODE=b.dataset.mode; if(EQ_DATA) drawEquity($('eqWrap'), EQ_DATA.days, EQ_DATA.flows);
 }));
 
@@ -639,7 +728,8 @@ function render(snap, storedAt){
   $('aboveNote').textContent = above>=0 ? 'available to take as income' : 'below base — take nothing out';
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
-  drawVix($('vixWrap'), days);
+  drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'));
+  renderLedger(snap.flows||[], snap.trades||[]);
 
   const pos=snap.positions||[];
   renderSpread(mine, pos, xsp);
