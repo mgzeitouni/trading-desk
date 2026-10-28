@@ -422,14 +422,16 @@ function drawPosition(el, days, t){
   if(!t){ $('chartH').textContent='VIX, last 60 days'; $('chartLg').innerHTML=VIX_LG; drawVix(el, days); return; }
   let nt={}; try{ nt = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
   const credit=+(nt.credit ?? t.credit ?? 0), mult=100*(+(nt.qty||1));
-  const maxP=credit*mult, stopP=(credit-STOP_MULT*credit)*mult;
-  $('chartH').textContent='Open spread P&L';
-  $('chartLg').innerHTML=`<span><i class="sw" style="background:var(--accent)"></i> P&amp;L (credit − cost to close)</span>
-    <span><i class="sw" style="background:var(--good)"></i> max profit ${fmtUsd(maxP)}</span>
-    <span><i class="sw" style="background:var(--crit)"></i> stop ${fmtUsd(stopP)}</span>
+  // P&L as % of the credit (the max profit), so the chart reads the same at any contract count: +100% = expires
+  // worthless, the 6x stop = -500%. Dollars are in the tooltip.
+  const maxP=100, stopP=(1-STOP_MULT)*100, fmtPct=v=>`${v>0?'+':v<0?'−':''}${Math.abs(Math.round(v))}%`;
+  $('chartH').textContent='Open spread P&L, % of the credit';
+  $('chartLg').innerHTML=`<span><i class="sw" style="background:var(--accent)"></i> P&amp;L (credit − cost to close) ÷ credit</span>
+    <span><i class="sw" style="background:var(--good)"></i> max profit +100% (${fmtUsd(credit*mult)})</span>
+    <span><i class="sw" style="background:var(--crit)"></i> stop ${fmtPct(stopP)} (${fmtUsd((1-STOP_MULT)*credit*mult)})</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--ma)"></i> VIX</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>`;
-  const rows=days.filter(r=>r.d>=t.open_date && r.spread_mark!=null).map(r=>({...r, pnl:(credit-(+r.spread_mark))*mult}));
+  const rows=days.filter(r=>r.d>=t.open_date && r.spread_mark!=null).map(r=>({...r, usd:(credit-(+r.spread_mark))*mult, pnl:credit?(credit-(+r.spread_mark))/credit*100:0}));
   if(!rows.length){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>No marks yet</b>The chart fills in as the bot records the spread’s value at each run.</div>'; return; }
   const day=d=>Math.round(new Date(d+'T12:00:00')/864e5), d0=day(t.open_date), d1=Math.max(day(nt.expiry||t.open_date), d0+1);
   const W=640,H=220,L=52,R=74,T=12,B=28;
@@ -441,7 +443,7 @@ function drawPosition(el, days, t){
   const fmtD=x=>new Date(x+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});
   const mono='font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace"';
   let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Open spread profit and loss by day, between its max profit and its stop, with VIX and XSP behind it">`;
-  for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step) s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--grid)"/><text x="${L-7}" y="${ys(v)+4}" text-anchor="end" ${mono}>${fmtUsd(v)}</text>`;
+  for(let v=Math.ceil(lo/step)*step; v<=hi; v+=step) s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--grid)"/><text x="${L-7}" y="${ys(v)+4}" text-anchor="end" ${mono}>${fmtPct(v)}</text>`;
   // VIX and XSP: own min-max scales over the shown days, drawn first and faint so the P&L line reads on top
   // each in its own horizontal strip (fractions of the plot height) under the $0 line, where the P&L rarely goes;
   // the scale spans at least `minFrac` of the level (VIX ±20%, XSP ±3%) so a quiet stretch stays a flat line
@@ -457,7 +459,7 @@ function drawPosition(el, days, t){
   overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60]); overlay('vix','var(--ma)','VIX',2,0.2,[0.62,0.92]);
   s+=`<line x1="${L}" x2="${W-R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)"/>`;
   [[maxP,'var(--good)','max'],[stopP,'var(--crit)','stop']].forEach(([v,c,lab])=>{
-    s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R+6}" y="${ys(v)+4}" font-size="10.5" fill="${c}" font-family="IBM Plex Mono,monospace">${lab} ${fmtUsd(v)}</text>`;
+    s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R+6}" y="${ys(v)+4}" font-size="10.5" fill="${c}" font-family="IBM Plex Mono,monospace">${lab} ${fmtPct(v)}</text>`;
   });
   s+=`<path d="${rows.map((r,i)=>`${i?'L':'M'}${xs(r.d).toFixed(1)},${ys(r.pnl).toFixed(1)}`).join('')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
   rows.forEach((r,i)=>{ s+=`<circle cx="${xs(r.d)}" cy="${ys(r.pnl)}" r="${i===rows.length-1?4.5:2.5}" fill="var(--accent)" stroke="var(--surface)" stroke-width="${i===rows.length-1?2:1}"/>`; });
@@ -470,7 +472,7 @@ function drawPosition(el, days, t){
   svg.querySelectorAll('.hit').forEach(h=>h.addEventListener('pointerenter',()=>{
     const r=rows[+h.dataset.i], b=h.getBoundingClientRect();
     ch.setAttribute('x1',xs(r.d)); ch.setAttribute('x2',xs(r.d)); ch.setAttribute('opacity','1');
-    showTip(`<b>${esc(fmtD(r.d))}</b><div class="r"><span>P&amp;L</span><span>${r.pnl>=0?'+':''}${fmtUsd(r.pnl)}</span></div>`
+    showTip(`<b>${esc(fmtD(r.d))}</b><div class="r"><span>P&amp;L</span><span>${fmtPct(r.pnl)} · ${r.usd>=0?'+':''}${fmtUsd(r.usd)}</span></div>`
       + `<div class="r"><span>Cost to close</span><span>${fmt2(r.spread_mark)}</span></div>`
       + (r.vix!=null?`<div class="r"><span>VIX close</span><span>${fmt2(r.vix)}</span></div>`:'')
       + (r.xsp!=null?`<div class="r"><span>XSP</span><span>${fmt2(r.xsp)}</span></div>`:''), b.left+b.width/2, b.top);
