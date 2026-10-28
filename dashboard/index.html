@@ -478,16 +478,21 @@ function drawPosition(el, days, t){
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
 }
 
-// Account ledger: deposits and withdrawals (cash_flows, restart markers left out) and each closed spread's P&L.
+// Account ledger: deposits and withdrawals (cash_flows, restart markers left out) and each closed v9 spread's P&L.
+// Trades from earlier versions (legs other than 'S': the v6 sleeves and the v7 test) are folded into one
+// "Deposit adjustment" on the first day they closed, so the P&L columns cover only the current strategy.
 function renderLedger(flows, trades){
+  const closed=trades.filter(t=>t.close_date && t.pnl!=null), old=closed.filter(t=>t.leg!=='S');
+  const adj=old.length ? [{d:old.map(t=>t.close_date).sort()[0], type:'Deposit adjustment', amt:old.reduce((a,t)=>a+(+t.pnl),0),
+    det:`net result of ${old.length} trade${old.length>1?'s':''} from earlier versions, before v9`}] : [];
   const rows=flows.filter(f=>f.kind!=='restart' && +f.amount!==0)
       .map(f=>({d:f.d, type:+f.amount>0?'Deposit':'Withdrawal', amt:+f.amount, det:f.kind==='detected'?'found by the bot’s cash check':''}))
-    .concat(trades.filter(t=>t.close_date && t.pnl!=null)
+    .concat(adj, closed.filter(t=>t.leg==='S')
       .map(t=>({d:t.close_date, type:+t.pnl>=0?'Profit':'Loss', amt:+t.pnl, det:`${t.structure}${t.exit_reason?` · ${t.exit_reason}`:''}`})))
     .sort((a,b)=>a.d<b.d?1:a.d>b.d?-1:0);
   if(!rows.length){ $('ledgerWrap').innerHTML='<div class="empty"><b>Nothing yet</b>Deposits, withdrawals and closed spreads show up here.</div>'; return; }
   const sum=f=>rows.filter(f).reduce((a,r)=>a+r.amt,0);
-  const dep=sum(r=>r.type==='Deposit'), wd=-sum(r=>r.type==='Withdrawal'), pl=sum(r=>r.type==='Profit'||r.type==='Loss');
+  const dep=sum(r=>r.type==='Deposit'||r.type==='Deposit adjustment'), wd=-sum(r=>r.type==='Withdrawal'), pl=sum(r=>r.type==='Profit'||r.type==='Loss');
   const kv=(k,v,c='')=>`<div class="stat"><dt>${k}</dt><dd class="mono ${c}">${v}</dd></div>`;
   $('ledgerWrap').innerHTML=`<p class="cap">Every deposit and withdrawal, and each spread’s profit or loss when it closed. All time, newest first.</p>
     <dl class="stats" style="grid-template-columns:repeat(3,1fr); margin-top:0">
@@ -495,7 +500,7 @@ function renderLedger(flows, trades){
     <div class="tscroll" style="max-height:320px; overflow-y:auto; margin-top:10px"><table style="min-width:0">
       <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Detail</th></tr></thead><tbody>`
     + rows.map(r=>`<tr><td class="mono" style="white-space:nowrap">${esc(r.d)}</td><td>${r.type}</td>
-        <td class="num mono ${r.type==='Loss'||r.type==='Withdrawal'?'neg':'pos'}" style="white-space:nowrap">${r.amt>=0?'+':''}${fmtUsd(r.amt)}</td>
+        <td class="num mono ${r.type==='Deposit adjustment'?'':r.type==='Loss'||r.type==='Withdrawal'?'neg':'pos'}" style="white-space:nowrap">${r.amt>=0?'+':''}${fmtUsd(r.amt)}</td>
         <td style="color:var(--ink-2)">${esc(r.det)}</td></tr>`).join('')
     + `</tbody></table></div>`;
 }
