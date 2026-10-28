@@ -301,9 +301,11 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <button type="button" role="tab" aria-selected="false" data-mode="value">Value</button>
         <button type="button" role="tab" aria-selected="false" data-mode="twr">Time-weighted</button>
         <button type="button" role="tab" aria-selected="false" data-mode="history">History</button>
+        <button type="button" role="tab" aria-selected="false" data-mode="risk">Risk</button>
       </div>
       <figure style="margin-top:10px" id="eqFig"><div id="eqWrap"></div></figure>
       <div id="ledgerWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
+      <div id="riskWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
     </section>
 
     <section class="card span12" id="setCard">
@@ -436,7 +438,7 @@ function drawPosition(el, days, t){
     <span><i class="sw" style="background:var(--crit)"></i> stop ${fmtPct(stopP)} (${fmtUsd((1-STOP_MULT)*credit*mult)})</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--ma)"></i> VIX</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>`;
-  const rows=days.filter(r=>r.d>=t.open_date && r.spread_mark!=null).map(r=>({...r, usd:(credit-(+r.spread_mark))*mult, pnl:credit?(credit-(+r.spread_mark))/credit*100:0}));
+  const rows=days.filter(r=>r.d>=t.open_date && (!nt.expiry || r.d<=nt.expiry) && r.spread_mark!=null).map(r=>({...r, usd:(credit-(+r.spread_mark))*mult, pnl:credit?(credit-(+r.spread_mark))/credit*100:0}));
   if(!rows.length){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>No marks yet</b>The chart fills in as the bot records the spread’s value at each run.</div>'; return; }
   const day=d=>Math.round(new Date(d+'T12:00:00')/864e5), d0=day(t.open_date), d1=Math.max(day(nt.expiry||t.open_date), d0+1);
   const W=640,H=220,L=52,R=74,T=12,B=28;
@@ -602,11 +604,66 @@ function drawEquity(el,days,flows){
   });
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hl.setAttribute('opacity','0'); hideTip();});
 }
+// Live Sharpe / Sortino since the latest restart: daily time-weighted returns (deposits and withdrawals removed by seriesFor),
+// excess over cash, annualized (x sqrt 252), recomputed on all days so far so the line shows how the figure has evolved.
+// Reference lines are the backtest's own DAILY-based figures (2007-2026: Sharpe 0.68, Sortino 1.03); the strategy page's
+// 1.34 / 2.95 are from monthly returns and are not comparable with daily marks.
+const RISK_RF = 0.039, RISK_MIN = 60, BT_SHARPE = 0.68, BT_SORTINO = 1.03;   // ~3 months before the ratios mean anything
+function riskSeries(days, flows){
+  const rows=seriesFor('twr', days, flows), out=[]; let n=0, s=0, s2=0, dn2=0;
+  for(let i=1;i<rows.length;i++){
+    const x=(1+rows[i].twr/100)/(1+rows[i-1].twr/100)-1-RISK_RF/252;
+    n++; s+=x; s2+=x*x; dn2+=Math.min(x,0)**2;
+    const mu=s/n, sd=n>1?Math.sqrt(Math.max(0,(s2-n*mu*mu)/(n-1))):0, dd=Math.sqrt(dn2/n);
+    out.push({d:rows[i].d, n, sharpe:sd>0?mu/sd*Math.sqrt(252):null, sortino:dd>0?mu/dd*Math.sqrt(252):null});
+  }
+  return out;
+}
+function drawRisk(el, days, flows){
+  const all=riskSeries(days, flows), last=all[all.length-1], ok=last&&last.n>=RISK_MIN;
+  const f=v=>v==null?'—':fmt2(v), kv=(k,v,sub)=>`<div class="stat"><dt>${k}</dt><dd class="mono">${v}</dd><div class="sn">${sub}</div></div>`;
+  let h=`<p class="cap">Since ${EQ_SINCE?esc(EQ_SINCE):'the first record'}: daily returns with deposits and withdrawals removed, over cash at ${(RISK_RF*100).toFixed(1)}%, annualized. Dashed lines are the backtest on the same daily basis.</p>
+    <dl class="stats" style="grid-template-columns:repeat(3,1fr); margin-top:0">
+      ${kv('Sharpe', ok?f(last.sharpe):'—', `backtest ${fmt2(BT_SHARPE)}`)}${kv('Sortino', ok?f(last.sortino):'—', `backtest ${fmt2(BT_SORTINO)}`)}
+      ${kv('Trading days', last?last.n:0, ok?'in the figures':`shown from ${RISK_MIN}`)}</dl>`;
+  const pts=all.filter(r=>r.n>=RISK_MIN && r.sharpe!=null && r.sortino!=null);
+  if(pts.length<2){
+    el.innerHTML=h+`<div class="empty" style="padding:12px 0 4px"><b>Too early to measure</b>${last?last.n:0} trading day${last&&last.n===1?'':'s'} of live data since the restart; the ratios appear after ${RISK_MIN} and settle over months. Even the backtest's single-year Sortino ranged from about −0.1 to 2.1.</div>`;
+    return;
+  }
+  const W=640,H=200,L=40,R=12,T=12,B=28, n=pts.length;
+  const vals=pts.flatMap(p=>[p.sharpe,p.sortino]).concat([BT_SHARPE,BT_SORTINO,0]);
+  const lo=Math.floor(Math.min(...vals)), hi=Math.ceil(Math.max(...vals));
+  const xs=i=>L+i*(W-L-R)/(n-1), ys=v=>T+(hi-v)/(hi-lo||1)*(H-T-B);
+  const mono='font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace"';
+  const fmtD=x=>new Date(x+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'});
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Live Sharpe and Sortino ratios over time against the backtest">`;
+  const step=(hi-lo)>6?2:1;
+  for(let v=lo; v<=hi; v+=step) s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${v===0?'var(--axis)':'var(--grid)'}"/><text x="${L-7}" y="${ys(v)+4}" text-anchor="end" ${mono}>${v}</text>`;
+  [[BT_SORTINO,'var(--accent)'],[BT_SHARPE,'var(--ink-2)']].forEach(([v,c])=>{     // values are in the legend: the two lines sit close together
+    s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.25" stroke-dasharray="4 4" opacity=".6"/>`;
+  });
+  [['sharpe','var(--ink-2)',1.5],['sortino','var(--accent)',2]].forEach(([k,c,w])=>{
+    s+=`<path d="${pts.map((p,i)=>`${i?'L':'M'}${xs(i).toFixed(1)},${ys(p[k]).toFixed(1)}`).join('')}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linejoin="round"/>`;
+    s+=`<circle cx="${xs(n-1)}" cy="${ys(pts[n-1][k])}" r="3.5" fill="${c}" stroke="var(--surface)" stroke-width="1.5"/>`;
+  });
+  [0,n-1].forEach(i=>{ s+=`<text x="${xs(i)}" y="${H-B+17}" text-anchor="${i?'end':'start'}" ${mono}>${fmtD(pts[i].d)}</text>`; });
+  s+=`<line class="vx-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" opacity="0"/>`;
+  const w=(W-L-R)/Math.max(1,n-1);
+  pts.forEach((p,i)=>{ s+=`<rect class="hit" x="${xs(i)-w/2}" y="${T}" width="${w}" height="${H-T-B}" data-i="${i}"/>`; });
+  el.innerHTML=h+`<div class="lg" style="margin-top:12px"><span><i class="sw" style="background:var(--accent)"></i> Sortino</span><span><i class="sw" style="background:var(--ink-2)"></i> Sharpe</span><span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> dashed: backtest (Sortino ${fmt2(BT_SORTINO)}, Sharpe ${fmt2(BT_SHARPE)})</span></div><figure>${s}</svg></figure>`;
+  const svg=el.querySelector('svg'), ch=svg.querySelector('.vx-ch');
+  svg.querySelectorAll('.hit').forEach(r=>r.addEventListener('pointerenter',()=>{
+    const p=pts[+r.dataset.i], b=r.getBoundingClientRect(); ch.setAttribute('x1',xs(+r.dataset.i)); ch.setAttribute('x2',xs(+r.dataset.i)); ch.setAttribute('opacity','1');
+    showTip(`<b>${esc(fmtD(p.d))}</b><div class="r"><span>Sortino</span><span>${fmt2(p.sortino)}</span></div><div class="r"><span>Sharpe</span><span>${fmt2(p.sharpe)}</span></div><div class="r"><span>Days</span><span>${p.n}</span></div>`, b.left+b.width/2, b.top);
+  }));
+  svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
+}
 document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.seg button').forEach(x=>{x.classList.toggle('on',x===b); x.setAttribute('aria-selected', x===b);});
-  const hist=b.dataset.mode==='history';                  // the History tab swaps the chart for the ledger table
-  $('eqFig').hidden=hist; $('ledgerWrap').hidden=!hist;
-  if(hist) return;
+  const md=b.dataset.mode;                                 // History and Risk swap the chart for their own panel
+  $('eqFig').hidden=md==='history'||md==='risk'; $('ledgerWrap').hidden=md!=='history'; $('riskWrap').hidden=md!=='risk';
+  if(md==='history'||md==='risk') return;
   EQ_MODE=b.dataset.mode; if(EQ_DATA) drawEquity($('eqWrap'), EQ_DATA.days, EQ_DATA.flows);
 }));
 
@@ -744,6 +801,7 @@ function render(snap, storedAt){
   drawEquity($('eqWrap'), days, snap.flows||[]);
   drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'));
   renderLedger(snap.flows||[], snap.trades||[]);
+  drawRisk($('riskWrap'), days, snap.flows||[]);
 
   const pos=snap.positions||[];
   renderSpread(mine, pos, xsp);
