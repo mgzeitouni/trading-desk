@@ -59,7 +59,8 @@ h1{font-size:23px; font-weight:700; letter-spacing:-.02em; margin:0; text-wrap:b
   padding:3px 8px; border-radius:4px; background:var(--surface-2); color:var(--ink-2); border:1px solid var(--rule);}
 .pill.live{background:var(--good-bg); color:var(--good); border-color:transparent;}
 .pill.planned{background:var(--warn-bg); color:var(--warn-ink); border-color:transparent;}
-.sub{color:var(--ink-2); margin:0 0 22px; max-width:66ch;}
+.sub{color:var(--ink-2); margin:0 0 16px; max-width:66ch;}
+.sub a{color:var(--accent);}
 .stamp{margin-left:auto; font-size:11.5px; color:var(--muted);}
 
 /* connector state strip */
@@ -68,24 +69,26 @@ h1{font-size:23px; font-weight:700; letter-spacing:-.02em; margin:0; text-wrap:b
 .conn b{color:var(--ink); font-weight:600;}
 .conn .ic{flex:none; font-family:"IBM Plex Mono",monospace; font-weight:600;}
 
-.verdict{background:var(--surface); border:1px solid var(--rule); border-radius:10px;
-  box-shadow:var(--shadow); overflow:hidden; margin-bottom:22px;}
-.verdict-head{display:flex; align-items:center; gap:12px; padding:16px 18px; border-bottom:1px solid var(--rule); flex-wrap:wrap;}
+/* status strip: headline on the left, the three gates as compact tiles beside it */
+.verdict{background:var(--surface); border:1px solid var(--rule); border-radius:10px; box-shadow:var(--shadow); overflow:hidden;
+  margin-bottom:16px; display:grid; grid-template-columns:minmax(200px,1fr) 3fr;}
+.verdict-head{display:grid; grid-template-columns:auto 1fr; align-items:center; column-gap:9px; row-gap:3px; align-content:center;
+  padding:11px 16px; border-right:1px solid var(--rule);}
 .dot{width:10px; height:10px; border-radius:50%; flex:none;}
-.verdict-title{font-weight:600; font-size:15px;}
-.verdict-why{color:var(--ink-2); font-size:13px; margin-left:auto; text-align:right;}
+.verdict-title{font-weight:600; font-size:14px;}
+.verdict-why{grid-column:2; color:var(--ink-2); font-size:12px; overflow-wrap:anywhere;}
 .gates{display:grid; grid-template-columns:repeat(3,1fr);}
-.gate{padding:15px 18px 17px; border-right:1px solid var(--rule);}
+.gate{padding:10px 14px 11px; border-right:1px solid var(--rule); min-width:0;}
 .gate:last-child{border-right:0;}
-.gate-h{display:flex; align-items:center; gap:7px; font-size:11px; letter-spacing:.07em;
-  text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:9px;}
+.gate-h{display:flex; align-items:center; gap:6px; font-size:10.5px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--muted); font-weight:600; margin-bottom:3px; white-space:nowrap;}
 .mark{font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:600;}
-.gate-v{font-size:21px; font-weight:600; letter-spacing:-.01em;}
-.gate-v .vs{font-size:12.5px; color:var(--muted); font-weight:400; margin-left:5px;}
-.meter{margin-top:11px; height:5px; border-radius:3px; background:var(--surface-2); position:relative; overflow:hidden;}
+.gate-v{font-size:15px; font-weight:600; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.gate-v .vs{font-size:11px; color:var(--muted); font-weight:400; margin-left:5px;}
+.meter{margin-top:6px; height:4px; border-radius:3px; background:var(--surface-2); position:relative; overflow:hidden;}
 .meter i{position:absolute; inset:0 auto 0 0; border-radius:3px; display:block; background:var(--muted);}
 .meter .thr{position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink-2); opacity:.65;}
-.gate-n{margin-top:8px; font-size:12px; color:var(--ink-2);}
+.gate-n{margin-top:4px; font-size:11px; color:var(--ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 
 .grid{display:grid; gap:16px; grid-template-columns:repeat(12,1fr); align-items:start;}
 .card{background:var(--surface); border:1px solid var(--rule); border-radius:10px; box-shadow:var(--shadow); padding:17px 18px 18px;}
@@ -149,11 +152,11 @@ svg{display:block; width:100%; height:auto; overflow:visible;}
 footer{margin-top:30px; padding-top:16px; border-top:1px solid var(--rule); color:var(--muted); font-size:11.5px;}
 @media (max-width:900px){
   .span7,.span5,.span6{grid-column:1/-1}
-  .gates{grid-template-columns:1fr;}
-  .gate{border-right:0; border-bottom:1px solid var(--rule);}
-  .gate:last-child{border-bottom:0;}
+  .verdict{grid-template-columns:1fr;}
+  .verdict-head{border-right:0; border-bottom:1px solid var(--rule);}
+  .gate{padding:9px 10px 10px;}
+  .gate-v .vs,.gate-n{display:none;}               /* phones: value and meter only; details are in the tooltip */
   .stats{grid-template-columns:repeat(2,1fr);}
-  .verdict-why{margin-left:0; text-align:left; width:100%;}
 }
 /* segmented control (account chart mode) */
 .seg{display:inline-flex; gap:2px; padding:3px; border-radius:8px; background:var(--surface-2); border:1px solid var(--rule);}
@@ -240,7 +243,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
     <span class="pill mono planned" id="statusPill">PLANNED</span>
     <span class="stamp mono" id="stamp">loading…</span>
   </header>
-  <p class="sub">A monthly XSP put credit spread, 11% below the market and 5% wide, sold only when the VIX gate is open, stopped at 6× the credit and rolled the Thursday before expiry. Size compounds with the account. Gates, orders, the open spread and the trade log read live from the bot’s log.</p>
+  <p class="sub">Monthly XSP put credit spread: 11% below the market, 5% wide, VIX-gated, 6× stop, rolled the Thursday before expiry. <a href="../strategy/">How it works</a></p>
 
   <div class="conn" id="conn" hidden><span class="ic" id="connIc">·</span><span id="connMsg"></span></div>
 
@@ -258,7 +261,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <div class="gate-n" id="g1n">—</div>
       </div>
       <div class="gate">
-        <div class="gate-h"><span class="mark" id="g2m">·</span> Post-peak re-entry</div>
+        <div class="gate-h"><span class="mark" id="g2m">·</span> Re-entry</div>
         <div class="gate-v"><span class="mono" id="g2v">—</span><span class="vs">20-day high · re-entry at 75%</span></div>
         <div class="meter"><i id="g2bar" style="width:0"></i><span class="thr" id="g2thr" style="left:75%"></span></div>
         <div class="gate-n" id="g2n">—</div>
@@ -273,6 +276,15 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
   </section>
 
   <div class="grid">
+
+    <section class="card span7">
+      <h2>Open spread</h2>
+      <p class="cap">The strategy’s spread right now, its stop and the next roll.</p>
+      <div id="spreadWrap"><div class="empty">Loading…</div></div>
+      <h2 style="margin-top:18px" id="chartH">Open spread P&amp;L</h2>
+      <div class="lg" id="chartLg"></div>
+      <figure id="vixWrap"></figure>
+    </section>
 
     <section class="card span5">
       <h2>Account</h2>
@@ -292,15 +304,6 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
       </div>
       <figure style="margin-top:10px" id="eqFig"><div id="eqWrap"></div></figure>
       <div id="ledgerWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
-    </section>
-
-    <section class="card span7">
-      <h2>Open spread</h2>
-      <p class="cap">The strategy’s spread right now, its stop and the next roll.</p>
-      <div id="spreadWrap"><div class="empty">Loading…</div></div>
-      <h2 style="margin-top:18px" id="chartH">Open spread P&amp;L</h2>
-      <div class="lg" id="chartLg"></div>
-      <figure id="vixWrap"></figure>
     </section>
 
     <section class="card span12" id="setCard">
@@ -720,6 +723,8 @@ function render(snap, storedAt){
                                  : `${fmtUsd(oneLoss-(acct-others))} short of one spread’s ~${fmtUsd(oneLoss)} max loss`;
   { const b=$('g3bar'); b.style.width=Math.min(100,(acct-others)/(2*oneLoss)*100)+'%'; b.style.background=fits>=1?'var(--good)':'var(--crit)'; }
   }
+
+  document.querySelectorAll('.gate').forEach(g=>{ g.title=g.querySelector('.gate-n').textContent; });   // full note on hover (truncated or hidden in the strip)
 
   const mine=(snap.trades||[]).find(t=>!t.close_date && t.leg==='S');
   const dot=$('vDot');
