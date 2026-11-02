@@ -425,7 +425,12 @@ function drawVix(el, days){
 const VIX_LG = `<span><i class="sw" style="background:var(--accent)"></i> VIX close</span>
   <span><i class="sw" style="background:var(--crit)"></i> 32 gate</span>
   <span><i class="sw" style="background:var(--ma)"></i> re-entry level (75% of 20-day high)</span>`;
-function drawPosition(el, days, t){
+// When the open legs' marks were last refreshed (positions.updated_at), e.g. "Nov 2, 10:45 AM ET"
+function marksAsOf(pos){
+  const ts=pos.map(p=>p.updated_at).filter(Boolean).sort().pop(); if(!ts) return null;
+  return new Date(ts).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' ET';
+}
+function drawPosition(el, days, t, asOf){
   if(!t){ $('chartH').textContent='VIX, last 60 days'; $('chartLg').innerHTML=VIX_LG; drawVix(el, days); return; }
   let nt={}; try{ nt = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
   const credit=+(nt.credit ?? t.credit ?? 0), mult=100*(+(nt.qty||1));
@@ -437,7 +442,8 @@ function drawPosition(el, days, t){
     <span><i class="sw" style="background:var(--good)"></i> max profit +100% (${fmtUsd(credit*mult)})</span>
     <span><i class="sw" style="background:var(--crit)"></i> stop ${fmtPct(stopP)} (${fmtUsd((1-STOP_MULT)*credit*mult)})</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--ma)"></i> VIX</span>
-    <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>`;
+    <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>
+    ${asOf?`<span class="mono" style="margin-left:auto;color:var(--muted)">prices as of ${esc(asOf)}</span>`:''}`;
   const rows=days.filter(r=>r.d>=t.open_date && (!nt.expiry || r.d<=nt.expiry) && r.spread_mark!=null).map(r=>({...r, usd:(credit-(+r.spread_mark))*mult, pnl:credit?(credit-(+r.spread_mark))/credit*100:0}));
   if(!rows.length){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>No marks yet</b>The chart fills in as the bot records the spread’s value at each run.</div>'; return; }
   const day=d=>Math.round(new Date(d+'T12:00:00')/864e5), d0=day(t.open_date), d1=Math.max(day(nt.expiry||t.open_date), d0+1);
@@ -730,7 +736,7 @@ function renderSpread(t, pos, xsp){
       ${kv('Expiry', esc(n.expiry||'—'))}
       ${kv('Roll on', n.expiry?esc(rollDate(n.expiry))+' · 3:45pm':'—')}
     </dl>
-    <div class="cap" style="margin:8px 0 0">Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes.</div>`;
+    <div class="cap" style="margin:8px 0 0">${marksAsOf(pos)?`<b>Prices as of ${esc(marksAsOf(pos))}.</b> `:''}Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes.</div>`;
 }
 
 function render(snap, storedAt){
@@ -799,7 +805,7 @@ function render(snap, storedAt){
   $('aboveNote').textContent = above>=0 ? 'available to take as income' : 'below base — take nothing out';
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
-  drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'));
+  drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'), marksAsOf(snap.positions||[]));
   renderLedger(snap.flows||[], snap.trades||[]);
   drawRisk($('riskWrap'), days, snap.flows||[]);
 
