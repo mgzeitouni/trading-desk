@@ -522,6 +522,10 @@ function renderLedger(flows, trades, interest){
 }
 
 let EQ_MODE='pnl', EQ_DATA=null, EQ_SINCE=null, INTEREST=[];   // INTEREST: interest_payments rows {d, amount}
+// Robinhood pays cash interest (collateral included) monthly, a day or two into the next month, and the API we use only
+// shows payments. The P&L adds an estimate of what has accrued and not been paid yet: daily cash x CASH_APY / 365 for the
+// current month, plus last month's until its payment lands. Update CASH_APY when Robinhood's Gold rate changes.
+const CASH_APY = 0.036;
 function seriesFor(mode, days, flows){
   const since=EQ_SINCE||'';                                  // account chart restarts at the latest 'restart' cash flow
   const rows=days.filter(r=>r.account_value!=null && r.d>=since);
@@ -533,15 +537,26 @@ function seriesFor(mode, days, flows){
   Object.keys(byDay).forEach(d=>{ if(d<firstD){ contrib+=byDay[d]; if(byDay[d]<0) wd-=byDay[d]; } });   // money in/out before the first snapshot
   const ints=INTEREST.filter(x=>x.d>=since).sort((a,b)=>a.d<b.d?-1:1);
   const out=[]; let idx=100, prevV=null, ii=0, cumInt=0;
+  let mon=null, accCur=0, accPrev=0, paid=false, lastD=null, lastCash=null;
   rows.forEach((r,i)=>{
-    while(ii<ints.length && ints[ii].d<=r.d) cumInt+=+ints[ii++].amount;     // interest paid to date (it is part of the P&L)
+    while(ii<ints.length && ints[ii].d<=r.d){ const p=ints[ii++]; cumInt+=+p.amount; if(p.d.slice(0,7)===r.d.slice(0,7)) paid=true; }   // paid to date
+    const cash=lastCash!=null?lastCash:(r.cash!=null?+r.cash:0);
+    for(let t=lastD?new Date(lastD+'T12:00:00'):new Date(r.d+'T12:00:00'); ; ){       // accrue each calendar day since the last row
+      if(lastD) t.setDate(t.getDate()+1);
+      const ds=t.toISOString().slice(0,10); if(ds>r.d) break;
+      if(ds.slice(0,7)!==mon){ accPrev=mon?accCur:0; accCur=0; mon=ds.slice(0,7); paid=ints.some(p=>p.d.slice(0,7)===mon && p.d<=r.d); }
+      accCur+=cash*CASH_APY/365;
+      if(!lastD) break;
+    }
+    lastD=r.d; if(r.cash!=null) lastCash=+r.cash;
+    const accr=accCur+(paid?0:accPrev);
     const V=+r.account_value, F=byDay[r.d]||0;
     if(i===0 && contrib===0) contrib=V;                        // no flow history: treat the first snapshot as the deposit
     else { contrib+=F; if(F<0) wd-=F; }
     if(prevV!=null && prevV>0){ idx*= (V-F)/prevV; }         // flow assumed to land before the day's close
     prevV=V;
     // withdrawals neither lower P&L (contrib falls by the same amount) nor the value line (added back as vadj)
-    out.push({d:r.d, value:V, vadj:V+wd, wd, dep:contrib+wd, pnl:V-contrib, intr:cumInt, opt:V-contrib-cumInt, contrib, twr:idx-100});
+    out.push({d:r.d, value:V, vadj:V+wd, wd, dep:contrib+wd, pnl:V-contrib+accr, intr:cumInt+accr, paidInt:cumInt, accr, opt:V-contrib-cumInt, contrib, twr:idx-100});
   });
   return out;
 }
@@ -591,9 +606,9 @@ function drawEquity(el,days,flows){
       + `<path d="${sub('intr')}" fill="none" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3" stroke-linejoin="round"/>` : '';
   const depLine = isVal ? `<path d="${depPath}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="4 4" opacity=".75"/>` : '';
   const head = isVal ? `Value ${fmtUsd(lastR.vadj)}${lastR.wd?` incl. ${fmtUsd(lastR.wd)} withdrawn`:''} vs ${fmtUsd(lastR.dep)} deposited: <b class="${cls(gain)}">${sgn(gain)}${fmtUsd(gain)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b></span><span><i class="sw" style="background:var(--ink-2);opacity:.75"></i> Deposited`
-             : EQ_MODE==='pnl'  ? `P&amp;L after ${fmtUsd(dep)} of net deposits: <b class="${cls(last)}">${sgn(last)}${fmtUsd(last)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b></span>`
+             : EQ_MODE==='pnl'  ? `P&amp;L after ${fmtUsd(dep)} of net deposits: <b class="${cls(last)}">${sgn(last)}${fmtUsd(last)} (${sgn(last)}${(lastR.dep>0?last/lastR.dep*100:0).toFixed(1)}%)</b></span>`
                  + `<span><i class="sw" style="background:var(--ink-2)"></i> Options, net of fees ${sgn(lastR.opt)}${fmtUsd(lastR.opt)}</span>`
-                 + `<span><i class="sw" style="background:var(--good)"></i> Interest paid ${sgn(lastR.intr)}${fmtUsd(lastR.intr)}`
+                 + `<span><i class="sw" style="background:var(--good)"></i> Interest ${sgn(lastR.intr)}${fmtUsd(lastR.intr)} ($${fmt2(lastR.accr)} accrued, est.)`
              :                    `Time-weighted return (deposits neutralised): <b class="${last<0?'neg':last>0?'pos':''}">${fmtV(last)}</b>`;
   el.innerHTML=`<div class="lg" style="margin:0 0 6px"><span><i class="sw" style="background:var(--accent)"></i> ${head}</span></div>
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account ${EQ_MODE} over time">${g}${area}${depLine}${split}
@@ -607,7 +622,7 @@ function drawEquity(el,days,flows){
       const i=+hEl.dataset.i, r=ser[i], b=hEl.getBoundingClientRect();
       ch.setAttribute('x1',xs(i)); ch.setAttribute('x2',xs(i)); ch.setAttribute('opacity','1');
       hl.setAttribute('cx',xs(i)); hl.setAttribute('cy',ys(r[key])); hl.setAttribute('opacity','1');
-      const pnl=r.value-r.contrib;
+      const pnl=r.pnl;                                       // includes interest accrued but not yet paid (est.)
       showTip(`<b>${esc(fmtD(r.d))}</b>
         <div class="r"><span>Account value</span><span>${fmtUsd(r.value)}</span></div>
         ${r.wd?`<div class="r"><span>Withdrawn to date</span><span>${fmtUsd(r.wd)}</span></div>
@@ -615,7 +630,8 @@ function drawEquity(el,days,flows){
         <div class="r"><span>Net deposits</span><span>${fmtUsd(r.contrib)}</span></div>
         <div class="r"><span>P&amp;L</span><span class="${pnl<0?'neg':pnl>0?'pos':''}">${signed(pnl)} (${pct(pnl,r.dep)})</span></div>
         <div class="r"><span>· options, net of fees</span><span>${signed(r.opt)}</span></div>
-        <div class="r"><span>· interest paid</span><span>${signed(r.intr)}</span></div>
+        <div class="r"><span>· interest paid</span><span>${signed(r.paidInt)}</span></div>
+        <div class="r"><span>· interest accrued (est.)</span><span>${signed(r.accr)}</span></div>
         <div class="r"><span>Time-weighted</span><span>${r.twr>=0?'+':''}${r.twr.toFixed(2)}%</span></div>`,
         b.left+b.width/2, b.top);
     });
