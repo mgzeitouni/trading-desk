@@ -366,8 +366,8 @@ const RULES_FALLBACK = [
   {id:"roll", text:"On the last trading day before expiry, buy back the expiring spread and sell next month’s."},
   {id:"size", text:"Contracts = account value ÷ max loss per spread, rounded down, capped by the size setting."}];
 const BT = {cagr:18.5, worst:14.0, sharpe:1.34, sortino:2.95, sortinoW:1.87, dd:-22.5, ddW:-28.1, spx:{cagr:14.9, sortino:1.66, dd:-35, ddW:-56}};
-const BT_YEARS = {2007:13.5,2008:36.2,2009:40.9,2010:-6.1,2011:12.0,2012:7.1,2013:1.1,2014:1.3,2015:-6.1,2016:8.6,2017:3.9,2018:6.7,2019:13.3,2020:38.4,2021:28.8,2022:41.0,2023:21.2,2024:12.2,2025:32.1,2026:17.6};
-const SPX_YEARS = {2007:5.6,2008:-37.9,2009:27.1,2010:9.2,2011:7.3,2012:15.5,2013:32.1,2014:13.6,2015:1.4,2016:11.2,2017:22.0,2018:-4.8,2019:31.5,2020:18.4,2021:30.1,2022:-18.5,2023:27.1,2024:25.9,2025:18.8,2026:15.8};
+const BT_YEARS = {2007:13.5,2008:36.2,2009:40.9,2010:-6.4,2011:12.2,2012:7.1,2013:1.1,2014:1.3,2015:-6.1,2016:8.6,2017:3.9,2018:6.7,2019:13.0,2020:38.5,2021:28.6,2022:41.0,2023:21.3,2024:12.2,2025:31.4,2026:17.6};   // research/sessions/2026-10/growth_chart/years.py ($5k, Jan 2007, calendar years)
+const SPX_YEARS = {2007:5.6,2008:-37.9,2009:27.1,2010:14.9,2011:1.9,2012:15.5,2013:32.1,2014:13.6,2015:1.4,2016:11.2,2017:22.0,2018:-4.8,2019:31.5,2020:18.4,2021:30.1,2022:-18.5,2023:27.1,2024:25.9,2025:18.8,2026:15.8};
 const STOP_MULT = 6, VIX_MAX = 32, RE_FRAC = 0.75, BASE_MULT = 1.4;
 const FEE_LEG = 0.39;   // Robinhood XSP fee per contract per leg (rules.FEE_PER_CONTRACT_LEG in the bot)
 
@@ -720,7 +720,7 @@ $('btStats').innerHTML = [
   $('btYears').innerHTML = `<table style="min-width:900px"><thead><tr><th>Jan-2007 start</th>${ys.map(y=>`<th class="num">${y.slice(2)}</th>`).join('')}</tr></thead><tbody>
     <tr><td>Strategy</td>${ys.map(y=>`<td class="num mono ${BT_YEARS[y]<0?'neg':''}">${BT_YEARS[y].toFixed(0)}</td>`).join('')}</tr>
     <tr><td>S&amp;P 500 TR</td>${ys.map(y=>`<td class="num mono ${SPX_YEARS[y]<0?'neg':''}">${SPX_YEARS[y].toFixed(0)}</td>`).join('')}</tr></tbody></table>
-    <div class="cap" style="margin:8px 0 0">Calendar-year % returns; 2026 is year to date. $5k → about $86k vs $40k.</div>`; }
+    <div class="cap" style="margin:8px 0 0">Calendar-year % returns; 2026 is year to date. $5k → about $85k vs $40k.</div>`; }
 
 /* ---------------- live state ---------------- */
 function setConn(icon, colorVar, html){
