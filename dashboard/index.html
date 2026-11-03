@@ -496,22 +496,23 @@ function drawPosition(el, days, t, asOf){
 // Account ledger: deposits and withdrawals (cash_flows, restart markers left out) and each closed v9 spread's P&L.
 // Trades from earlier versions (legs other than 'S': the v6 sleeves and the v7 test) are folded into one
 // "Deposit adjustment" on the first day they closed, so the P&L columns cover only the current strategy.
-function renderLedger(flows, trades){
+function renderLedger(flows, trades, interest){
   const closed=trades.filter(t=>t.close_date && t.pnl!=null), old=closed.filter(t=>t.leg!=='S');
   const adj=old.length ? [{d:old.map(t=>t.close_date).sort()[0], type:'Deposit adjustment', amt:old.reduce((a,t)=>a+(+t.pnl),0),
     det:`net result of ${old.length} trade${old.length>1?'s':''} from earlier versions, before v9`}] : [];
   const rows=flows.filter(f=>f.kind!=='restart' && +f.amount!==0)
       .map(f=>({d:f.d, type:+f.amount>0?'Deposit':'Withdrawal', amt:+f.amount, det:f.kind==='detected'?'found by the bot’s cash check':''}))
     .concat(adj, closed.filter(t=>t.leg==='S')
-      .map(t=>({d:t.close_date, type:+t.pnl>=0?'Profit':'Loss', amt:+t.pnl, det:`${t.structure}${t.exit_reason?` · ${t.exit_reason}`:''}`})))
+      .map(t=>({d:t.close_date, type:+t.pnl>=0?'Profit':'Loss', amt:+t.pnl, det:`${t.structure}${t.exit_reason?` · ${t.exit_reason}`:''}`})),
+      (interest||[]).filter(i=>+i.amount!==0).map(i=>({d:i.d, type:'Interest', amt:+i.amount, det:'Robinhood cash interest, collateral included'})))
     .sort((a,b)=>a.d<b.d?1:a.d>b.d?-1:0);
-  if(!rows.length){ $('ledgerWrap').innerHTML='<div class="empty"><b>Nothing yet</b>Deposits, withdrawals and closed spreads show up here.</div>'; return; }
+  if(!rows.length){ $('ledgerWrap').innerHTML='<div class="empty"><b>Nothing yet</b>Deposits, withdrawals, closed spreads and interest show up here.</div>'; return; }
   const sum=f=>rows.filter(f).reduce((a,r)=>a+r.amt,0);
-  const dep=sum(r=>r.type==='Deposit'||r.type==='Deposit adjustment'), wd=-sum(r=>r.type==='Withdrawal'), pl=sum(r=>r.type==='Profit'||r.type==='Loss');
+  const dep=sum(r=>r.type==='Deposit'||r.type==='Deposit adjustment'), wd=-sum(r=>r.type==='Withdrawal'), pl=sum(r=>r.type==='Profit'||r.type==='Loss'), it=sum(r=>r.type==='Interest');
   const kv=(k,v,c='')=>`<div class="stat"><dt>${k}</dt><dd class="mono ${c}">${v}</dd></div>`;
-  $('ledgerWrap').innerHTML=`<p class="cap">Every deposit and withdrawal, and each spread’s profit or loss when it closed. All time, newest first.</p>
-    <dl class="stats" style="grid-template-columns:repeat(3,1fr); margin-top:0">
-      ${kv('Deposited', fmtUsd(dep))}${kv('Withdrawn', fmtUsd(wd))}${kv('Realised P&L', (pl>=0?'+':'')+fmtUsd(pl), pl<0?'neg':'pos')}</dl>
+  $('ledgerWrap').innerHTML=`<p class="cap">Every deposit and withdrawal, each spread’s profit or loss when it closed, and each interest payment. All time, newest first.</p>
+    <dl class="stats" style="grid-template-columns:repeat(4,1fr); margin-top:0">
+      ${kv('Deposited', fmtUsd(dep))}${kv('Withdrawn', fmtUsd(wd))}${kv('Spread P&L', (pl>=0?'+':'')+fmtUsd(pl), pl<0?'neg':'pos')}${kv('Interest', (it>=0?'+':'')+fmtUsd(it), it<0?'neg':'pos')}</dl>
     <div class="tscroll" style="max-height:320px; overflow-y:auto; margin-top:10px"><table style="min-width:0">
       <thead><tr><th>Date</th><th>Type</th><th class="num">Amount</th><th>Detail</th></tr></thead><tbody>`
     + rows.map(r=>`<tr><td class="mono" style="white-space:nowrap">${esc(r.d)}</td><td>${r.type}</td>
@@ -520,7 +521,7 @@ function renderLedger(flows, trades){
     + `</tbody></table></div>`;
 }
 
-let EQ_MODE='pnl', EQ_DATA=null, EQ_SINCE=null;
+let EQ_MODE='pnl', EQ_DATA=null, EQ_SINCE=null, INTEREST=[];   // INTEREST: interest_payments rows {d, amount}
 function seriesFor(mode, days, flows){
   const since=EQ_SINCE||'';                                  // account chart restarts at the latest 'restart' cash flow
   const rows=days.filter(r=>r.account_value!=null && r.d>=since);
@@ -530,15 +531,17 @@ function seriesFor(mode, days, flows){
   const firstD=rows[0].d;
   let contrib=0, wd=0;                                       // net deposits; withdrawals taken out (positive $)
   Object.keys(byDay).forEach(d=>{ if(d<firstD){ contrib+=byDay[d]; if(byDay[d]<0) wd-=byDay[d]; } });   // money in/out before the first snapshot
-  const out=[]; let idx=100, prevV=null;
+  const ints=INTEREST.filter(x=>x.d>=since).sort((a,b)=>a.d<b.d?-1:1);
+  const out=[]; let idx=100, prevV=null, ii=0, cumInt=0;
   rows.forEach((r,i)=>{
+    while(ii<ints.length && ints[ii].d<=r.d) cumInt+=+ints[ii++].amount;     // interest paid to date (it is part of the P&L)
     const V=+r.account_value, F=byDay[r.d]||0;
     if(i===0 && contrib===0) contrib=V;                        // no flow history: treat the first snapshot as the deposit
     else { contrib+=F; if(F<0) wd-=F; }
     if(prevV!=null && prevV>0){ idx*= (V-F)/prevV; }         // flow assumed to land before the day's close
     prevV=V;
     // withdrawals neither lower P&L (contrib falls by the same amount) nor the value line (added back as vadj)
-    out.push({d:r.d, value:V, vadj:V+wd, wd, dep:contrib+wd, pnl:V-contrib, contrib, twr:idx-100});
+    out.push({d:r.d, value:V, vadj:V+wd, wd, dep:contrib+wd, pnl:V-contrib, intr:cumInt, opt:V-contrib-cumInt, contrib, twr:idx-100});
   });
   return out;
 }
@@ -551,7 +554,8 @@ function drawEquity(el,days,flows){
   const fmtV=v=>isPct?`${v>=0?'+':''}${v.toFixed(2)}%`:fmtUsd(v);
   const vals=ser.map(r=>r[key]);
   const isVal=EQ_MODE==='value';
-  const rangeVals=isVal?vals.concat(ser.map(r=>r.dep)):vals;
+  const isPnl=EQ_MODE==='pnl';
+  const rangeVals=isVal?vals.concat(ser.map(r=>r.dep)):isPnl?vals.concat(ser.map(r=>r.opt),ser.map(r=>r.intr)):vals;
   const W=420,H=170,L=58,R=14,T=14,B=30, n=ser.length;
   const first=vals[0], last=vals[n-1];
   let lo=Math.min(...rangeVals,isPct||EQ_MODE==='pnl'?0:Infinity), hi=Math.max(...rangeVals,isPct||EQ_MODE==='pnl'?0:-Infinity);
@@ -581,12 +585,18 @@ function drawEquity(el,days,flows){
   // value mode: value with withdrawals added back, against total deposited (dashed step line)
   const depPath = isVal ? ser.map((r,i)=>{ const x=xs(i).toFixed(1), y=ys(r.dep).toFixed(1);
       return i? `H${x}V${y}` : `M${x},${y}`; }).join('') : '';
+  // P&L mode: the total split into the options (net of fees, open spread at its mark) and interest paid; they sum to the blue line
+  const sub=k=>ser.map((r,i)=>`${i?'L':'M'}${xs(i).toFixed(1)},${ys(r[k]).toFixed(1)}`).join('');
+  const split = isPnl && n>1 ? `<path d="${sub('opt')}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-linejoin="round" opacity=".8"/>`
+      + `<path d="${sub('intr')}" fill="none" stroke="var(--good)" stroke-width="1.5" stroke-dasharray="4 3" stroke-linejoin="round"/>` : '';
   const depLine = isVal ? `<path d="${depPath}" fill="none" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="4 4" opacity=".75"/>` : '';
   const head = isVal ? `Value ${fmtUsd(lastR.vadj)}${lastR.wd?` incl. ${fmtUsd(lastR.wd)} withdrawn`:''} vs ${fmtUsd(lastR.dep)} deposited: <b class="${cls(gain)}">${sgn(gain)}${fmtUsd(gain)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b></span><span><i class="sw" style="background:var(--ink-2);opacity:.75"></i> Deposited`
-             : EQ_MODE==='pnl'  ? `P&amp;L after ${fmtUsd(dep)} of net deposits: <b class="${cls(last)}">${sgn(last)}${fmtUsd(last)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b>`
+             : EQ_MODE==='pnl'  ? `P&amp;L after ${fmtUsd(dep)} of net deposits: <b class="${cls(last)}">${sgn(last)}${fmtUsd(last)} (${sgn(gainPct)}${gainPct.toFixed(1)}%)</b></span>`
+                 + `<span><i class="sw" style="background:var(--ink-2)"></i> Options, net of fees ${sgn(lastR.opt)}${fmtUsd(lastR.opt)}</span>`
+                 + `<span><i class="sw" style="background:var(--good)"></i> Interest paid ${sgn(lastR.intr)}${fmtUsd(lastR.intr)}`
              :                    `Time-weighted return (deposits neutralised): <b class="${last<0?'neg':last>0?'pos':''}">${fmtV(last)}</b>`;
   el.innerHTML=`<div class="lg" style="margin:0 0 6px"><span><i class="sw" style="background:var(--accent)"></i> ${head}</span></div>
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account ${EQ_MODE} over time">${g}${area}${depLine}
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account ${EQ_MODE} over time">${g}${area}${depLine}${split}
     <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${pts}
     <circle cx="${xs(n-1)}" cy="${ys(last)}" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>${hover}${hits}</svg>`;
   const svg=el.querySelector('svg'), ch=svg.querySelector('.eq-ch'), hl=svg.querySelector('.eq-hl');
@@ -604,6 +614,8 @@ function drawEquity(el,days,flows){
         <div class="r"><span>Value incl. withdrawals</span><span>${fmtUsd(r.vadj)}</span></div>`:''}
         <div class="r"><span>Net deposits</span><span>${fmtUsd(r.contrib)}</span></div>
         <div class="r"><span>P&amp;L</span><span class="${pnl<0?'neg':pnl>0?'pos':''}">${signed(pnl)} (${pct(pnl,r.dep)})</span></div>
+        <div class="r"><span>· options, net of fees</span><span>${signed(r.opt)}</span></div>
+        <div class="r"><span>· interest paid</span><span>${signed(r.intr)}</span></div>
         <div class="r"><span>Time-weighted</span><span>${r.twr>=0?'+':''}${r.twr.toFixed(2)}%</span></div>`,
         b.left+b.width/2, b.top);
     });
@@ -805,10 +817,11 @@ function render(snap, storedAt){
   $('baseNote').textContent = `${tgt} contract${tgt>1?'s':''} × ${BASE_MULT} × ~${fmtUsd(oneLoss)} collateral${xsp?` at XSP ${fmt2(xsp)}`:''}`;
   $('aboveVal').textContent = fmtUsd(above); $('aboveVal').className = 'mono '+(above<0?'neg':'pos');
   $('aboveNote').textContent = above>=0 ? 'available to take as income' : 'below base — take nothing out';
+  INTEREST=snap.interest||[];
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
   drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'), marksAsOf(snap.positions||[]));
-  renderLedger(snap.flows||[], snap.trades||[]);
+  renderLedger(snap.flows||[], snap.trades||[], snap.interest||[]);
   drawRisk($('riskWrap'), days, snap.flows||[]);
 
   const pos=snap.positions||[];
