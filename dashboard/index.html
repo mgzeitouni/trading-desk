@@ -265,7 +265,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
     <div class="gates">
       <div class="gate">
         <div class="gate-h"><span class="mark" id="g1m">·</span> VIX gate</div>
-        <div class="gate-v"><span class="mono" id="g1v">—</span><span class="vs">prior close vs 32</span></div>
+        <div class="gate-v"><span class="mono" id="g1v">—</span><span class="vs" id="g1vs">prior close vs 32</span></div>
         <div class="meter"><i id="g1bar" style="width:0"></i><span class="thr" style="left:53.3%"></span></div>
         <div class="gate-n" id="g1n">—</div>
       </div>
@@ -305,6 +305,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <div class="stat"><dt>Above base</dt><dd class="mono" id="aboveVal">—</dd><div class="sn" id="aboveNote">available to take as income</div></div>
       </dl>
       <p class="cap" style="margin:8px 0 0">Keep at least the base in the account so the strategy can keep trading, with a buffer for a bad month. Anything above it can be taken out as income or a distribution. The base is 1.4× one spread’s collateral for each of your target contracts (set in Account settings), so it rises when the index rises.</p>
+      <div id="btMonth" style="margin:12px 0 0"></div>
       <div class="seg" role="tablist" aria-label="Account chart mode" style="margin-top:14px">
         <button type="button" role="tab" aria-selected="true" class="on" data-mode="pnl">P&amp;L</button>
         <button type="button" role="tab" aria-selected="false" data-mode="value">Value</button>
@@ -374,6 +375,9 @@ const RULES_FALLBACK = [
   {id:"stop", text:"At ~3:45pm ET, buy back when the cost to close is at least 6× the credit received."},
   {id:"roll", text:"On the last trading day before expiry, buy back the expiring spread and sell next month’s."},
   {id:"size", text:"Contracts = account value ÷ max loss per spread, rounded down, capped by the size setting."}];
+// v9 backtest monthly account returns, % (Jan 2007 – Oct 2026, $10k start, interest and fees included;
+// research/sessions/2026-10/growth_chart/curve.json). Used to place this month among all backtest months.
+const BT_MONTHS=[0.3,-1.0,1.2,-0.1,1.0,-0.2,-1.8,5.9,1.1,2.8,3.5,0.3,3.9,2.1,3.1,3.5,0.7,0.0,4.4,1.5,0.4,0.1,9.5,15.6,3.0,-20.7,37.8,4.7,5.7,2.7,4.0,1.0,1.1,-4.5,6.9,1.8,-4.5,6.5,0.3,-0.0,-19.2,-1.1,3.6,1.5,3.7,1.1,1.6,-0.3,0.8,3.0,1.1,0.0,2.0,-2.6,-2.7,-12.2,20.7,2.6,4.7,0.5,-0.1,0.6,0.8,2.2,1.9,0.4,-0.1,-0.1,0.4,1.0,0.0,0.4,-0.4,0.1,0.5,-1.3,1.9,-0.3,-0.5,-0.2,0.6,-0.2,0.4,-1.3,-0.5,0.1,0.3,-0.1,-0.0,-0.8,1.4,-0.5,3.4,-0.6,0.2,1.2,2.0,0.3,0.2,0.3,-0.9,1.7,-15.2,2.4,2.6,-0.2,2.2,2.8,2.1,0.9,-0.4,1.1,1.1,0.1,-0.0,1.2,-0.5,0.9,-0.1,0.6,0.1,0.0,0.5,0.7,0.2,0.0,0.8,0.3,0.2,0.3,0.0,0.5,-2.1,-1.4,2.3,0.5,0.0,1.0,0.9,0.1,-0.8,3.6,3.0,2.8,0.7,0.2,1.2,-0.7,2.2,1.1,3.3,0.7,1.1,0.9,0.6,-1.0,-10.5,0.0,15.6,8.7,1.0,5.2,3.1,3.7,-11.4,24.4,2.6,-2.1,5.4,6.2,1.1,2.8,1.4,1.3,3.1,-0.4,4.3,-1.7,6.2,1.5,2.9,4.2,-6.1,16.9,6.2,5.6,-7.3,-12.1,25.1,2.7,1.4,2.9,1.1,4.4,1.5,1.4,1.3,0.9,1.7,-1.1,3.6,1.4,0.6,0.7,0.8,1.0,1.5,0.6,0.8,1.0,-0.7,0.9,0.3,2.5,2.5,0.9,-1.0,-1.9,12.2,1.9,3.2,1.1,1.1,1.2,4.7,4.2,1.4,1.0,2.1,3.3,3.0,0.4,2.8,1.8,1.5,1.2,-0.5];
 const BT = {cagr:18.5, worst:14.0, sharpe:1.34, sortino:2.95, sortinoW:1.87, dd:-22.5, ddW:-28.1, spx:{cagr:14.9, sortino:1.66, dd:-35, ddW:-56}};
 const BT_YEARS = {2007:13.5,2008:36.2,2009:40.9,2010:-6.4,2011:12.2,2012:7.1,2013:1.1,2014:1.3,2015:-6.1,2016:8.6,2017:3.9,2018:6.7,2019:13.0,2020:38.5,2021:28.6,2022:41.0,2023:21.3,2024:12.2,2025:31.4,2026:17.6};   // research/sessions/2026-10/growth_chart/years.py ($5k, Jan 2007, calendar years)
 const SPX_YEARS = {2007:5.6,2008:-37.9,2009:27.1,2010:14.9,2011:1.9,2012:15.5,2013:32.1,2014:13.6,2015:1.4,2016:11.2,2017:22.0,2018:-4.8,2019:31.5,2020:18.4,2021:30.1,2022:-18.5,2023:27.1,2024:25.9,2025:18.8,2026:15.8};
@@ -597,6 +601,32 @@ let EQ_MODE='pnl', EQ_DATA=null, EQ_SINCE=null, INTEREST=[];   // INTEREST: inte
 // shows payments. The P&L adds an estimate of what has accrued and not been paid yet: daily cash x CASH_APY / 365 for the
 // current month, plus last month's until its payment lands. Update CASH_APY when Robinhood's Gold rate changes.
 const CASH_APY = 0.036;
+// This calendar month's time-weighted account return (deposits and withdrawals taken out) placed among all v9
+// backtest months. Partial months compare a few days against whole backtest months, so early in a month it reads small.
+function renderMonthVsBt(days, flows){
+  const el=$('btMonth'), s=seriesFor('pnl', days, flows);
+  if(!s.length){ el.innerHTML=''; return; }
+  const last=s[s.length-1], m0=last.d.slice(0,7)+'-01';
+  const prev=s.filter(r=>r.d<m0).pop(), base=prev||s[0];
+  const ret=((1+last.twr/100)/(1+base.twr/100)-1)*100;
+  const srt=[...BT_MONTHS].sort((a,b)=>a-b), n=srt.length, q=p=>srt[Math.round(p*(n-1))];
+  const pct=Math.round(srt.filter(v=>v<ret).length/n*100);
+  const lo=-5, hi=7, bw=0.5, nb=(hi-lo)/bw, bins=Array(nb).fill(0);
+  srt.forEach(v=>{ bins[Math.min(nb-1,Math.max(0,Math.floor((v-lo)/bw)))]++; });
+  const W=600,H=64,mx=Math.max(...bins), bx=v=>(Math.min(hi,Math.max(lo,v))-lo)/(hi-lo)*W;
+  const p10=q(0.1);
+  let svg=`<svg viewBox="0 0 ${W} ${H+16}" width="100%" role="img" aria-label="This month's return among all backtest months">`;
+  bins.forEach((c,i)=>{ const h=c/mx*(H-6), x0=lo+i*bw; svg+=`<rect x="${i*W/nb+1}" y="${H-h}" width="${W/nb-2}" height="${h}" rx="1.5" fill="${x0+bw<=p10?'var(--crit)':'var(--axis)'}" opacity="${x0+bw<=p10?.55:.9}"/>`; });
+  const x=bx(ret);
+  svg+=`<line x1="${x}" x2="${x}" y1="0" y2="${H}" stroke="var(--accent)" stroke-width="2"/>`;
+  [[lo,'start',`≤${lo}%`],[0,'middle','0%'],[hi,'end',`≥+${hi}%`]].forEach(([v,a,t])=>{ svg+=`<text x="${bx(v)}" y="${H+13}" text-anchor="${a}" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${t}</text>`; });
+  svg+='</svg>';
+  const mon=new Date(m0+'T12:00:00').toLocaleDateString('en-US',{month:'long'});
+  el.innerHTML=`<div class="kv" style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px;font-size:12.5px">
+      <span>${esc(mon)} so far <b class="mono ${ret<0?'neg':'pos'}">${ret>=0?'+':'−'}${Math.abs(ret).toFixed(2)}%</b>${prev?'':` <span style="color:var(--muted)">(since ${esc(base.d)})</span>`} · ${pct}th percentile of backtest months</span>
+      <span style="color:var(--ink-2)">backtest month: median <span class="mono">${q(0.5)>=0?'+':''}${q(0.5).toFixed(1)}%</span> · worst 10% below <span class="mono">${p10.toFixed(1)}%</span></span></div>${svg}
+    <p class="cap" style="margin:2px 0 0">Bars: all ${n} backtest months, 2007–2026 (red = worst 10%). Blue line: this month so far, after fees, with interest, deposits and withdrawals taken out. A month is out of the ordinary only if it ends among the red bars.</p>`;
+}
 function seriesFor(mode, days, flows){
   const since=EQ_SINCE||'';                                  // account chart restarts at the latest 'restart' cash flow
   const rows=days.filter(r=>r.account_value!=null && r.d>=since);
@@ -631,10 +661,23 @@ function seriesFor(mode, days, flows){
   });
   return out;
 }
+// Long histories: daily points up to ~6 months, then the last day of each week, then of each month past ~2 years.
+// Every series value is a running total (value, P&L, time-weighted index), so a period's last day carries it whole.
+// The latest day is always the final point.
+const EQ_DAILY_MAX=130, EQ_WEEKLY_MAX=520;
+function compressSeries(ser){
+  const per = ser.length>EQ_WEEKLY_MAX ? 'month' : ser.length>EQ_DAILY_MAX ? 'week' : 'day';
+  if(per==='day') return {ser, per};
+  const keyOf = d => { if(per==='month') return d.slice(0,7);
+    const t=new Date(d+'T12:00:00'); t.setDate(t.getDate()-((t.getDay()+6)%7)); return t.toISOString().slice(0,10); };   // Monday of the week
+  const out=[]; ser.forEach((r,i)=>{ const k=keyOf(r.d); if(out.length && out[out.length-1]._k===k) out[out.length-1]={...r,_k:k}; else out.push({...r,_k:k}); });
+  return {ser:out, per};
+}
 function drawEquity(el,days,flows){
   EQ_DATA={days,flows};
-  const ser=seriesFor(EQ_MODE, days, flows);
-  if(!ser.length){ el.innerHTML='<div class="empty" style="padding:16px 0 4px"><b>No history yet</b>The curve starts with the first daily check.</div>'; return; }
+  const full=seriesFor(EQ_MODE, days, flows);
+  if(!full.length){ el.innerHTML='<div class="empty" style="padding:16px 0 4px"><b>No history yet</b>The curve starts with the first daily check.</div>'; return; }
+  const {ser, per}=compressSeries(full);
   const key={value:'vadj',pnl:'pnl',twr:'twr'}[EQ_MODE];
   const isPct=EQ_MODE==='twr';
   const fmtV=v=>isPct?`${v>=0?'+':''}${v.toFixed(2)}%`:fmtUsd(v);
@@ -681,7 +724,7 @@ function drawEquity(el,days,flows){
                  + `<span><i class="sw" style="background:var(--ink-2)"></i> Options, net of fees ${sgn(lastR.opt)}${fmtUsd(lastR.opt)}</span>`
                  + `<span><i class="sw" style="background:var(--good)"></i> Interest ${sgn(lastR.intr)}${fmtUsd(lastR.intr)} ($${fmt2(lastR.accr)} accrued, est.)`
              :                    `Time-weighted return (deposits neutralised): <b class="${last<0?'neg':last>0?'pos':''}">${fmtV(last)}</b>`;
-  el.innerHTML=`<div class="lg" style="margin:0 0 6px"><span><i class="sw" style="background:var(--accent)"></i> ${head}</span></div>
+  el.innerHTML=`<div class="lg" style="margin:0 0 6px"><span><i class="sw" style="background:var(--accent)"></i> ${head}</span>${per!=='day'?`<span class="mono" style="margin-left:auto;color:var(--muted)">${per}ly points</span>`:''}</div>
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Account ${EQ_MODE} over time">${g}${area}${depLine}${split}
     <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${pts}
     <circle cx="${xs(n-1)}" cy="${ys(last)}" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>${hover}${hits}</svg>`;
@@ -694,7 +737,7 @@ function drawEquity(el,days,flows){
       ch.setAttribute('x1',xs(i)); ch.setAttribute('x2',xs(i)); ch.setAttribute('opacity','1');
       hl.setAttribute('cx',xs(i)); hl.setAttribute('cy',ys(r[key])); hl.setAttribute('opacity','1');
       const pnl=r.pnl;                                       // includes interest accrued but not yet paid (est.)
-      showTip(`<b>${esc(fmtD(r.d))}</b>
+      showTip(`<b>${per==='week'?'Week to ':per==='month'?'Month to ':''}${esc(fmtD(r.d))}</b>
         <div class="r"><span>Account value</span><span>${fmtUsd(r.value)}</span></div>
         ${r.wd?`<div class="r"><span>Withdrawn to date</span><span>${fmtUsd(r.wd)}</span></div>
         <div class="r"><span>Value incl. withdrawals</span><span>${fmtUsd(r.vadj)}</span></div>`:''}
@@ -815,6 +858,20 @@ function rollDate(expiry){
   while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1);
   return d.toISOString().slice(0,10);
 }
+// ---- Rough XSP level at which the 6x stop would trigger. Black-Scholes on each leg with the IV backed out of its
+// current mark, IV rising 0.5 vol point per 1% fall (put skew steepens in a sell-off). An estimate, not a quote.
+const nCdf=x=>{ const t=1/(1+0.2316419*Math.abs(x)), d=0.3989423*Math.exp(-x*x/2);
+  const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274)))); return x>0?1-p:p; };
+const RF=0.036;
+function bsPut(S,K,T,v){ if(T<=0||v<=0) return Math.max(K-S,0); const d1=(Math.log(S/K)+(RF+v*v/2)*T)/(v*Math.sqrt(T)), d2=d1-v*Math.sqrt(T);
+  return K*Math.exp(-RF*T)*nCdf(-d2)-S*nCdf(-d1); }
+function impVol(price,S,K,T){ let lo=0.01, hi=3; for(let i=0;i<60;i++){ const m=(lo+hi)/2; bsPut(S,K,T,m)>price?hi=m:lo=m; } return (lo+hi)/2; }
+function stopLevel(S,ks,kl,ms,ml,expiry,stopCost){
+  const T=Math.max((new Date(expiry+'T21:00:00Z')-Date.now())/(365*864e5), 1/365);
+  const vs=impVol(ms,S,ks,T), vl=impVol(ml,S,kl,T);
+  for(let x=S; x>kl; x-=0.25){ const b=(S-x)/S*100*0.005; if(bsPut(x,ks,T,vs+b)-bsPut(x,kl,T,vl+b)>=stopCost) return x; }
+  return null;
+}
 function renderSpread(t, pos, xsp){
   const el=$('spreadWrap');
   if(!t){ el.innerHTML=`<div class="empty"><b>No spread open</b>The bot proposes one at 9:40 ET when the gate is open and the account can post the collateral.</div>`; return; }
@@ -827,6 +884,12 @@ function renderSpread(t, pos, xsp){
   const pnl = cost!=null ? (credit-cost)*100*qty - fees : null;
   const dist = xsp ? (xsp-n.short)/xsp*100 : null;
   const coll = +t.collateral || ((n.short-n.long-credit)*100*qty);           // collateral at risk = the max loss
+  const stopX = (cost!=null && xsp && n.expiry) ? (cost>=stop ? xsp : stopLevel(xsp, +n.short, +n.long, +sh.mark, +lg.mark, n.expiry, stop)) : null;
+  const captured = cost!=null && credit ? (credit-cost)/credit*100 : null;   // before fees, as % of the max profit
+  const today = new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+  const daysLeft = n.expiry ? Math.round((new Date(rollDate(n.expiry)+'T12:00:00')-new Date(today+'T12:00:00'))/864e5) : null;
+  const pnlPct = captured;                                                    // same scale as the chart: +100% max, -500% stop
+  const barPos = v => Math.min(100, Math.max(0, (v-(1-STOP_MULT)*100)/(100-(1-STOP_MULT)*100)*100));
   const kv=(k,v,c='')=>`<div class="stat"><dt>${k}</dt><dd class="mono ${c}">${v}</dd></div>`;
   el.innerHTML = `<div class="kv" style="margin-bottom:10px"><b>${esc(t.structure)}</b> · opened ${esc(t.open_date)}${qty>1?` · ${qty} contracts`:''}</div>
     <dl class="stats" style="margin-top:0">
@@ -838,8 +901,18 @@ function renderSpread(t, pos, xsp){
       ${kv('Max loss', fmtUsd(coll))}
       ${kv('Expiry', esc(n.expiry||'—'))}
       ${kv('Roll on', n.expiry?esc(rollDate(n.expiry))+' · 3:45pm':'—')}
+      ${kv('Stop hits near', stopX!=null?`XSP ~${Math.round(stopX)} <span style="opacity:.75">(${((stopX/xsp-1)*100).toFixed(1)}%)</span>`:'—', stopX!=null&&(xsp-stopX)/xsp<0.03?'neg':'')}
+      ${kv('Profit captured', captured!=null?`${Math.round(captured)}% <span style="opacity:.75">of max</span>`:'—', captured!=null?(captured<0?'neg':'pos'):'')}
+      ${kv('Days left', daysLeft!=null?`${daysLeft} <span style="opacity:.75">to roll</span>`:'—')}
     </dl>
-    <div class="cap" style="margin:8px 0 0">${marksAsOf(pos)?`<b>Prices as of ${esc(marksAsOf(pos))}.</b> `:''}Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes. Open P&L is after $${fmt2(fees)} of entry fees, and the % is of the ${fmtUsd(coll)} collateral (the max loss); buying it back would cost about $${fmt2(FEE_LEG*2*qty)} more, expiring costs nothing.</div>`;
+    ${pnlPct!=null?`<div style="margin:12px 0 2px">
+      <div class="mono" style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted)"><span>stop ${Math.round((1-STOP_MULT)*100)}%</span><span>0</span><span>max +100%</span></div>
+      <div style="position:relative;height:8px;background:var(--surface-2);border-radius:4px;margin-top:3px">
+        <span style="position:absolute;left:${barPos(0)}%;top:-3px;width:1px;height:14px;background:var(--axis)"></span>
+        <span style="position:absolute;left:${Math.min(barPos(0),barPos(pnlPct))}%;width:${Math.abs(barPos(pnlPct)-barPos(0))}%;height:8px;background:${pnlPct>=0?'var(--good)':'var(--crit)'};border-radius:2px"></span>
+        <span style="position:absolute;left:calc(${barPos(pnlPct)}% - 1.5px);top:-3px;width:3px;height:14px;background:var(--ink);border-radius:2px"></span>
+      </div></div>`:''}
+    <div class="cap" style="margin:8px 0 0">${marksAsOf(pos)?`<b>Prices as of ${esc(marksAsOf(pos))}.</b> `:''}Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes. “Stop hits near” is an estimate from today’s option prices and implied volatility, and moves when volatility moves. Open P&L is after $${fmt2(fees)} of entry fees, and the % is of the ${fmtUsd(coll)} collateral (the max loss); buying it back would cost about $${fmt2(FEE_LEG*2*qty)} more, expiring costs nothing.</div>`;
 }
 
 function render(snap, storedAt){
@@ -862,6 +935,10 @@ function render(snap, storedAt){
   setMark('g1m', under);
   $('g1v').textContent = vix!=null?fmt2(vix):'—';
   $('g1n').textContent = vix==null ? 'no reading' : under ? `${(VIX_MAX-vix).toFixed(2)} below the gate` : `${(vix-VIX_MAX).toFixed(2)} above the gate`;
+  // the gate value on a day's row is the previous trading day's close; say which, and show VIX now beside it
+  const gateDay = days.length>1 ? days[days.length-2].d : null;
+  $('g1vs').textContent = gateDay ? `${new Date(gateDay+'T12:00:00').toLocaleDateString('en-US',{month:'numeric',day:'numeric'})} close vs 32` : 'prior close vs 32';
+  if(d.vix_live!=null) $('g1n').textContent += ` · VIX now ${fmt2(d.vix_live)}`;
   if(vix!=null){ const b=$('g1bar'); b.style.width=Math.min(100,vix/60*100)+'%'; b.style.background=under?'var(--good)':'var(--crit)'; }
 
   const reOk = !under && gateOk;
@@ -909,6 +986,7 @@ function render(snap, storedAt){
   INTEREST=snap.interest||[];
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
+  renderMonthVsBt(days, snap.flows||[]);
   drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'), marksAsOf(snap.positions||[]), snap.runs||[]);
   renderHealth(snap);
   renderLedger(snap.flows||[], snap.trades||[], snap.interest||[]);
@@ -1213,12 +1291,19 @@ async function refresh(){
   try{
     const snap = await api('snapshot');
     LAST = snap; $('conn').hidden = true;
+    // the server sends the user's current account list; an old login token may still list accounts since removed
+    const acc = snap.viewer && snap.viewer.accounts;
+    if(Array.isArray(acc) && acc.join()!==(SESSION.accounts||[]).join()){ SESSION.accounts = acc; store.set('vc_session', SESSION); tabs(); }
     // keep a half-typed form intact across the 2-minute refresh
     const typing = document.activeElement && $('setWrap').contains(document.activeElement);
     if(typing){ const keep=renderSettings; renderSettings=()=>{}; try{ render(snap, Date.now()); } finally{ renderSettings=keep; } }
     else render(snap, Date.now());
   }catch(e){
     if(e.message==='signed out') return;
+    if(e.message==='no access to this account' && CUR!==SESSION.user){   // that account was removed from this login
+      SESSION.accounts=(SESSION.accounts||[]).filter(a=>a!==CUR); store.set('vc_session', SESSION);
+      history.replaceState(null,'',location.pathname+location.search); pickAccount(); tabs(); return refresh();
+    }
     setConn('!','--warn',`<b>Live read failed.</b> ${esc(e.message)}`); liveUnavailable('The live read did not complete.');
   }
 }
