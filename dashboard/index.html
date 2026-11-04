@@ -839,20 +839,11 @@ function drawExpected(el, days, flows){
       <line class="ex-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" opacity="0"/>
       ${ser.map((_,i)=>`<rect class="hit" x="${xs(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" data-i="${i}"/>`).join('')}</svg>
     <div class="eqn">
-      <div class="eh">Tax rates (top brackets)</div>
-      <div>r<sub>1256</sub> = 60% × 23.8% <span class="c">(long-term 20% + 3.8% NIIT)</span> + 40% × 40.8% <span class="c">(short-term 37% + 3.8%)</span> = <b>${(TAX_OPT*100).toFixed(1)}%</b></div>
-      <div>s = 10.9% <span class="c">(NY)</span> + 3.876% <span class="c">(NYC)</span> = <b>${(TAX_NYC*100).toFixed(2)}%</b> <span class="c">— no 60/40 split; taxed as ordinary income</span></div>
-      <div>t<sub>opt</sub> = r<sub>1256</sub> + s = <b>${((TAX_OPT+TAX_NYC)*100).toFixed(1)}%</b> <span class="c">on the options P&amp;L, O (net of fees)</span></div>
-      <div>t<sub>int</sub> = 40.8% <span class="c">(ordinary 37% + 3.8%)</span> + s = <b>${((TAX_INT+TAX_NYC)*100).toFixed(1)}%</b> <span class="c">on the cash interest, I — not Section 1256</span></div>
-      <div class="eh">Live return to date (D = net deposits)</div>
-      <div>R = time-weighted return, fees and interest in = <b>${last.live>=0?'+':''}${last.live.toFixed(2)}%</b></div>
-      <div>R<sub>tax</sub> = R − (O·t<sub>opt</sub> + I·t<sub>int</sub>) / D = <b>${last.liveA>=0?'+':''}${last.liveA.toFixed(2)}%</b> <span class="c">(losses credited at the same rates)</span></div>
-      <div class="eh">Expected annual return (y = years live, K = ${EXP_K} years of backtest evidence)</div>
-      <div>E = exp( [ ln(1 + R) + K·ln(1 + p) ] / (y + K) ) − 1, &nbsp;p = backtest ${pc(EXP_PRE)} → <b>${pc(last.pre)}</b></div>
-      <div>E<sub>tax</sub> = same with R<sub>tax</sub> and p<sub>tax</sub> = ${pc(EXP_AFTER)} → <b>${pc(last.after)}</b></div>
-      <div>E<sub>loan</sub> = E<sub>tax</sub> − L, &nbsp;L = RH yield ${pc(CASH_APY*100)} + ${pc(LOAN_SPREAD*100)} = ${pc(LOAN_RATE*100)} <span class="c">(not deductible)</span> → <b>${pc(last.loan)}</b> <span class="c">a year on the borrowed amount</span></div>
+      <div>Options tax = 60% × 23.8% (long-term) + 40% × 40.8% (short-term) + NYS 10.9% + NYC 3.88% = <b>${((TAX_OPT+TAX_NYC)*100).toFixed(1)}%</b></div>
+      <div>Interest tax = 40.8% (ordinary) + NYS 10.9% + NYC 3.88% = <b>${((TAX_INT+TAX_NYC)*100).toFixed(1)}%</b></div>
+      <div>With a loan = ${pc(last.after)} after tax − ${pc(LOAN_RATE*100)} loan rate (RH ${pc(CASH_APY*100)} + 2%, not deductible) = <b>${pc(last.loan)}</b></div>
     </div>
-    <p class="cap" style="margin:6px 0 0">The backtest counts as ${EXP_K} years of evidence, so one live year moves E about a third of the way toward that year's return. p<sub>tax</sub> is from the after-tax backtest study (18.9% → 10.2% on $10k), scaled to ${pc(EXP_PRE)}. The loan line uses today's Robinhood rate for every day; Section 1256 positions open on Dec 31 are taxed at their mark, as R does here. An estimate, not a forecast.</p>`;
+    <p class="cap" style="margin:6px 0 0">Federal rates include the 3.8% investment income tax. Starts at the backtest and moves a little with each day of live results. An estimate, not a forecast.</p>`;
   const svg=el.querySelector('svg'), ch=svg.querySelector('.ex-ch');
   svg.querySelectorAll('.hit').forEach(h=>h.addEventListener('pointerenter',()=>{
     const r=ser[+h.dataset.i], b=h.getBoundingClientRect();
