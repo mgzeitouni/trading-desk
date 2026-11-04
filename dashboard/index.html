@@ -316,7 +316,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <button type="button" role="tab" aria-selected="false" data-mode="twr">Time-weighted</button>
         <button type="button" role="tab" aria-selected="false" data-mode="history">History</button>
         <button type="button" role="tab" aria-selected="false" data-mode="risk">Risk</button>
-        <button type="button" role="tab" aria-selected="false" data-mode="exp">Expected</button>
+        <button type="button" role="tab" aria-selected="false" data-mode="exp">Expected Annual</button>
       </div>
       <figure style="margin-top:10px" id="eqFig"><div id="eqWrap"></div></figure>
       <div id="ledgerWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
@@ -777,31 +777,36 @@ function riskSeries(days, flows){
   }
   return out;
 }
-// ---- Expected annual return, re-estimated every day. The backtest is the starting expectation, worth EXP_K years of
-// results; each day of live results pulls it toward what the account has actually done:
-//   expected = exp( (ln(1+live total return) + K·ln(1+backtest CAGR)) / (years live + K) ) − 1
-// so a good or bad week moves it a little and a year of live results moves it about a third of the way.
+// ---- Expected return for the calendar year, re-estimated every day: live results so far this year, then the backtest
+// rate for the rest of the year (see expSeries).
 // Pre-tax includes fees and interest (time-weighted, deposits taken out). After tax takes Section 1256 tax on the
 // options P&L (60/40: 30.6% federal incl. 3.8% NIIT) and ordinary tax on the interest (40.8%), plus NY + NYC 14.78%
 // on both, at top brackets; a loss is credited at the same rate, as if it offsets other gains.
 const TAX_OPT = 0.6*0.238 + 0.4*0.408, TAX_INT = 0.408, TAX_NYC = 0.109 + 0.03876;
-const EXP_K = 2;
 const EXP_PRE = BT.cagr;                          // 18.5: v9 backtest, fees and interest included
 const EXP_AFTER = +(BT.cagr * 10.2/18.9).toFixed(1);   // research v9_qqq/after_tax2: $10k 18.9% pre-tax -> 10.2% federal + NY/NYC
 // Loan-funded: borrow the strategy's capital at a floating rate = Robinhood's cash yield + 2%, interest not deductible
 // (per Morris's CPA), so the net yield on the loan = after-tax return − loan rate. Uses today's rate for every day.
 const LOAN_SPREAD = 0.02, LOAN_RATE = CASH_APY + LOAN_SPREAD;
 function expSeries(days, flows){
+  // This calendar year: live results so far this year, and the backtest rate for every part of the year without them.
+  //   E = (1 + R_ytd) × (1 + p)^(share of year not live) − 1
+  // R_ytd runs from Jan 1 (or the account's start, if later; the months before the start count at the backtest rate).
+  // Resets each Jan 1. Same for after tax.
   const s=seriesFor('pnl', days, flows); if(!s.length) return [];
-  const day=d=>new Date(d+'T12:00:00')/864e5, t0=day(s[0].d);
-  const blend=(R,p,y)=>(Math.exp((Math.log(Math.max(1e-6,1+R))+EXP_K*Math.log(1+p))/(y+EXP_K))-1)*100;
+  const day=d=>new Date(d+'T12:00:00')/864e5;
   return s.map(r=>{
-    const y=(day(r.d)-t0)/365.25, R=r.twr/100;
-    const tax = r.dep>0 ? (r.opt*(TAX_OPT+TAX_NYC) + r.intr*(TAX_INT+TAX_NYC))/r.dep : 0;
-    const Ra=R-tax;
-    const after=blend(Ra,EXP_AFTER/100,y);
-    return {d:r.d, y, pre:blend(R,EXP_PRE/100,y), after, loan:after-LOAN_RATE*100, live:R*100, liveA:Ra*100,
-      ann: y>=0.5 ? (Math.pow(1+R,1/y)-1)*100 : null};
+    const y0=r.d.slice(0,4)+'-01-01';
+    const base=s.filter(x=>x.d<y0).pop() || s[0];            // last day of last year, or the first day live
+    const from=base.d<y0 ? y0 : base.d;
+    const yearLen=day(String(+r.d.slice(0,4)+1)+'-01-01')-day(y0);
+    const left=Math.max(0, 1-(day(r.d)-day(from))/yearLen);   // share of the year not covered by live results (before the
+                                                              // account started, in its first year, or still to come)
+    const R=(1+r.twr/100)/(1+base.twr/100)-1;
+    const dO=r.opt-base.opt, dI=r.intr-base.intr;
+    const Ra=R-(r.dep>0?(dO*(TAX_OPT+TAX_NYC)+dI*(TAX_INT+TAX_NYC))/r.dep:0);
+    const pre=((1+R)*Math.pow(1+EXP_PRE/100,left)-1)*100, after=((1+Ra)*Math.pow(1+EXP_AFTER/100,left)-1)*100;
+    return {d:r.d, from, left, pre, after, loan:after-LOAN_RATE*100, live:R*100, liveA:Ra*100};
   });
 }
 function drawExpected(el, days, flows){
@@ -809,7 +814,7 @@ function drawExpected(el, days, flows){
   if(!all.length){ el.innerHTML='<div class="empty"><b>No history yet</b>The estimate starts with the first daily check.</div>'; line.innerHTML=''; return; }
   const {ser, per}=compressSeries(all), last=all[all.length-1];
   const pc=v=>`${v>=0?'':'−'}${Math.abs(v).toFixed(1)}%`;
-  line.innerHTML=`Expected annual return <b class="mono">${pc(last.pre)}</b> <span style="color:var(--muted)">(fees and interest in)</span> · after tax <b class="mono">${pc(last.after)}</b> · funded by a ${pc(LOAN_RATE*100)} loan, net of its interest <b class="mono">${pc(last.loan)}</b> <span style="color:var(--muted)">· see Expected tab</span>`;
+  line.innerHTML=`Expected ${last.d.slice(0,4)} return <b class="mono">${pc(last.pre)}</b> <span style="color:var(--muted)">(fees and interest in)</span> · after tax <b class="mono">${pc(last.after)}</b> · funded by a ${pc(LOAN_RATE*100)} loan, net of its interest <b class="mono">${pc(last.loan)}</b> <span style="color:var(--muted)">· see Expected Annual tab</span>`;
   const W=420,H=170,L=46,R=14,T=14,B=30,n=ser.length;
   const EXP_LOAN=EXP_AFTER-LOAN_RATE*100;
   const vals=ser.flatMap(r=>[r.pre,r.after,r.loan]).concat([EXP_PRE,EXP_AFTER,EXP_LOAN,0]);
@@ -829,7 +834,7 @@ function drawExpected(el, days, flows){
       <span><i class="sw" style="background:var(--good)"></i> After tax (NY + NYC) <b class="mono">${pc(last.after)}</b></span>
       <span><i class="sw" style="background:var(--ma)"></i> On a loan at ${pc(LOAN_RATE*100)}, after tax <b class="mono">${pc(last.loan)}</b></span>
       <span style="color:var(--muted)">dashed: starting points ${pc(EXP_PRE)} / ${pc(EXP_AFTER)} / ${pc(EXP_LOAN)}</span>${per!=='day'?`<span class="mono" style="margin-left:auto;color:var(--muted)">${per}ly points</span>`:''}</div>
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Expected annual return, re-estimated each day, pre-tax and after tax">${g}
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Expected return for this calendar year, re-estimated each day, pre-tax, after tax and loan-funded">${g}
       <path d="${path('pre')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
       <path d="${path('after')}" fill="none" stroke="var(--good)" stroke-width="2" stroke-linejoin="round"/>
       <path d="${path('loan')}" fill="none" stroke="var(--ma)" stroke-width="2" stroke-linejoin="round"/>
@@ -842,8 +847,9 @@ function drawExpected(el, days, flows){
       <div>Options tax = 60% × 23.8% (long-term) + 40% × 40.8% (short-term) + NYS 10.9% + NYC 3.88% = <b>${((TAX_OPT+TAX_NYC)*100).toFixed(1)}%</b></div>
       <div>Interest tax = 40.8% (ordinary) + NYS 10.9% + NYC 3.88% = <b>${((TAX_INT+TAX_NYC)*100).toFixed(1)}%</b></div>
       <div>With a loan = ${pc(last.after)} after tax − ${pc(LOAN_RATE*100)} loan rate (RH ${pc(CASH_APY*100)} + 2%, not deductible) = <b>${pc(last.loan)}</b></div>
+      <div>${last.d.slice(0,4)} pre-tax = (1 ${last.live>=0?'+':'−'} ${Math.abs(last.live).toFixed(2)}% live since ${esc(shortDate(last.from))}) × (1 + ${pc(EXP_PRE)} backtest)^${(last.left*100).toFixed(0)}% of the year not live − 1 = <b>${pc(last.pre)}</b></div>
     </div>
-    <p class="cap" style="margin:6px 0 0">Federal rates include the 3.8% investment income tax. Starts at the backtest and moves a little with each day of live results. An estimate, not a forecast.</p>`;
+    <p class="cap" style="margin:6px 0 0">Each line is this calendar year: actual results so far this year, plus the backtest rate for the rest of the year (in the first year, also for the months before the account started). It resets on Jan 1. Federal rates include the 3.8% investment income tax. An estimate, not a forecast.</p>`;
   const svg=el.querySelector('svg'), ch=svg.querySelector('.ex-ch');
   svg.querySelectorAll('.hit').forEach(h=>h.addEventListener('pointerenter',()=>{
     const r=ser[+h.dataset.i], b=h.getBoundingClientRect();
@@ -852,9 +858,10 @@ function drawExpected(el, days, flows){
       <div class="r"><span>Expected, pre-tax</span><span>${pc(r.pre)}</span></div>
       <div class="r"><span>Expected, after tax</span><span>${pc(r.after)}</span></div>
       <div class="r"><span>On a loan at ${pc(LOAN_RATE*100)}</span><span>${pc(r.loan)}</span></div>
-      <div class="r"><span>Live to date, pre-tax</span><span>${r.live>=0?'+':''}${r.live.toFixed(2)}%</span></div>
-      <div class="r"><span>Live to date, after tax</span><span>${r.liveA>=0?'+':''}${r.liveA.toFixed(2)}%</span></div>
-      ${r.ann!=null?`<div class="r"><span>Live, annualized</span><span>${pc(r.ann)}</span></div>`:''}`, b.left+b.width/2, b.top);
+      <div class="r"><span>Year at backtest rate</span><span>${(r.left*100).toFixed(0)}%</span></div>
+      <div class="r"><span>Live this year, pre-tax</span><span>${r.live>=0?'+':''}${r.live.toFixed(2)}%</span></div>
+      <div class="r"><span>Live this year, after tax</span><span>${r.liveA>=0?'+':''}${r.liveA.toFixed(2)}%</span></div>
+`, b.left+b.width/2, b.top);
   }));
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
 }
