@@ -103,9 +103,17 @@ h1{font-size:23px; font-weight:700; letter-spacing:-.02em; margin:0; text-wrap:b
 .span6{grid-column:span 6} .span12{grid-column:1/-1}
 h2{font-size:12px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:0 0 3px;}
 .cap{font-size:12.5px; color:var(--ink-2); margin:0 0 14px;}
-.eqn{margin:10px 0 0; padding:10px 12px; border-radius:8px; background:var(--surface-2); font:12px/1.75 "IBM Plex Mono",monospace; color:var(--ink);}
-.eqn .eh{font-family:inherit; color:var(--muted); font-size:11px; font-weight:600; margin-top:6px;}
-.eqn .eh:first-child{margin-top:0;} .eqn .c{color:var(--muted);} .eqn b{font-weight:600;}
+.calc{margin:12px 0 0; border-top:1px solid var(--rule);}
+.calc .row{display:grid; grid-template-columns:1fr auto; align-items:end; gap:4px 12px; padding:9px 0 8px; border-bottom:1px solid var(--rule);}
+.calc .lab{grid-column:1 / -1; font-size:11.5px; color:var(--ink-2);}
+.calc .f{display:flex; flex-wrap:wrap; align-items:flex-start; gap:4px 7px; font-size:13px;}
+.calc .t{display:inline-flex; flex-direction:column; align-items:center; line-height:1.15;}
+.calc .t b{font:500 13px "IBM Plex Mono",monospace; color:var(--ink);}
+.calc .t i{font-style:normal; font-size:10px; color:var(--muted); margin-top:2px; white-space:nowrap;}
+.calc .op{color:var(--muted); font:13px "IBM Plex Mono",monospace; line-height:1.15;}
+.calc .op sup{font-size:10px;}
+.calc .res{font:600 15px "IBM Plex Mono",monospace; text-align:right; white-space:nowrap;}
+
 .big{font-size:30px; font-weight:600; letter-spacing:-.02em; line-height:1.15;}
 
 .tscroll{overflow-x:auto; margin:0 -18px; padding:0 18px;}
@@ -817,6 +825,9 @@ function drawExpected(el, days, flows){
   line.innerHTML=`Expected ${last.d.slice(0,4)} return <b class="mono">${pc(last.pre)}</b> <span style="color:var(--muted)">(fees and interest in)</span> · after tax <b class="mono">${pc(last.after)}</b> · funded by a ${pc(LOAN_RATE*100)} loan, net of its interest <b class="mono">${pc(last.loan)}</b> <span style="color:var(--muted)">· see Expected Annual tab</span>`;
   const W=420,H=170,L=46,R=14,T=14,B=30,n=ser.length;
   const EXP_LOAN=EXP_AFTER-LOAN_RATE*100;
+  const yr=last.d.slice(0,4), left=(last.left).toFixed(2);     // exponent: share of the year at the backtest rate
+  const sp=v=>`${v>=0?'+':'−'}${Math.abs(v).toFixed(2)}%`;
+  const term=(v,cap)=>`<span class="t"><b>${esc(v)}</b>${cap?`<i>${esc(cap)}</i>`:''}</span>`;
   const vals=ser.flatMap(r=>[r.pre,r.after,r.loan]).concat([EXP_PRE,EXP_AFTER,EXP_LOAN,0]);
   let lo=Math.min(...vals), hi=Math.max(...vals); const pad=Math.max(1,(hi-lo)*0.15); lo=Math.floor(lo-pad); hi=Math.ceil(hi+pad);
   const xs=i=>n>1?L+i*(W-L-R)/(n-1):(L+W-R)/2, ys=v=>T+(hi-v)/(hi-lo)*(H-T-B);
@@ -843,13 +854,24 @@ function drawExpected(el, days, flows){
       <circle cx="${xs(n-1)}" cy="${ys(ser[n-1].after)}" r="4" fill="var(--good)" stroke="var(--surface)" stroke-width="2"/>
       <line class="ex-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" opacity="0"/>
       ${ser.map((_,i)=>`<rect class="hit" x="${xs(i)-cw/2}" y="${T}" width="${cw}" height="${H-T-B}" data-i="${i}"/>`).join('')}</svg>
-    <div class="eqn">
-      <div>Options tax = 60% × 23.8% (long-term) + 40% × 40.8% (short-term) + NYS 10.9% + NYC 3.88% = <b>${((TAX_OPT+TAX_NYC)*100).toFixed(1)}%</b></div>
-      <div>Interest tax = 40.8% (ordinary) + NYS 10.9% + NYC 3.88% = <b>${((TAX_INT+TAX_NYC)*100).toFixed(1)}%</b></div>
-      <div>With a loan = ${pc(last.after)} after tax − ${pc(LOAN_RATE*100)} loan rate (RH ${pc(CASH_APY*100)} + 2%, not deductible) = <b>${pc(last.loan)}</b></div>
-      <div>${last.d.slice(0,4)} pre-tax = (1 ${last.live>=0?'+':'−'} ${Math.abs(last.live).toFixed(2)}% live since ${esc(shortDate(last.from))}) × (1 + ${pc(EXP_PRE)} backtest)^${(last.left*100).toFixed(0)}% of the year not live − 1 = <b>${pc(last.pre)}</b></div>
+    <div class="calc">
+      <div class="row"><div class="lab">Tax on options</div>
+        <div class="f">${term('60%','')}<span class="op">×</span>${term('23.8%','long-term')}<span class="op">+</span>${term('40%','')}<span class="op">×</span>${term('40.8%','short-term')}<span class="op">+</span>${term('10.9%','NYS')}<span class="op">+</span>${term('3.88%','NYC')}</div>
+        <div class="res">${((TAX_OPT+TAX_NYC)*100).toFixed(1)}%</div></div>
+      <div class="row"><div class="lab">Tax on interest</div>
+        <div class="f">${term('40.8%','ordinary')}<span class="op">+</span>${term('10.9%','NYS')}<span class="op">+</span>${term('3.88%','NYC')}</div>
+        <div class="res">${((TAX_INT+TAX_NYC)*100).toFixed(1)}%</div></div>
+      <div class="row"><div class="lab">${yr} return, pre-tax <span style="color:var(--muted)">· live since ${esc(shortDate(last.from))}, backtest for the rest of the year</span></div>
+        <div class="f"><span class="op">(1 +</span>${term(sp(last.live),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_PRE),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
+        <div class="res" style="color:var(--accent)">${pc(last.pre)}</div></div>
+      <div class="row"><div class="lab">${yr} return, after tax</div>
+        <div class="f"><span class="op">(1 +</span>${term(sp(last.liveA),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_AFTER),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
+        <div class="res" style="color:var(--good)">${pc(last.after)}</div></div>
+      <div class="row"><div class="lab">With a loan <span style="color:var(--muted)">· interest not deductible</span></div>
+        <div class="f">${term(pc(last.after),'after tax')}<span class="op">−</span>${term(pc(LOAN_RATE*100),'RH '+pc(CASH_APY*100)+' + 2%')}</div>
+        <div class="res" style="color:var(--ma)">${pc(last.loan)}</div></div>
     </div>
-    <p class="cap" style="margin:6px 0 0">Each line is this calendar year: actual results so far this year, plus the backtest rate for the rest of the year (in the first year, also for the months before the account started). It resets on Jan 1. Federal rates include the 3.8% investment income tax. An estimate, not a forecast.</p>`;
+    <p class="cap" style="margin:8px 0 0">Each line is this calendar year: actual results so far this year, plus the backtest rate for the rest of the year (in the first year, also for the months before the account started). It resets on Jan 1. Federal rates include the 3.8% investment income tax. An estimate, not a forecast.</p>`;
   const svg=el.querySelector('svg'), ch=svg.querySelector('.ex-ch');
   svg.querySelectorAll('.hit').forEach(h=>h.addEventListener('pointerenter',()=>{
     const r=ser[+h.dataset.i], b=h.getBoundingClientRect();
