@@ -853,6 +853,7 @@ function liveUnavailable(msg){
   drawEquity($('eqWrap'), [], []);
 }
 
+const shortDate=d=>new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'});   // "Nov 20"
 function rollDate(expiry){
   const e=new Date(expiry+'T12:00:00'); const d=new Date(e); d.setDate(d.getDate()-1);
   while(d.getDay()===0||d.getDay()===6) d.setDate(d.getDate()-1);
@@ -899,8 +900,8 @@ function renderSpread(t, pos, xsp){
       ${kv('Open P&L, net of fees', pnl!=null?(pnl>=0?'+':'−')+'$'+fmt2(Math.abs(pnl))+(coll>0?` <span style="opacity:.75">(${pnl>=0?'+':'−'}${Math.abs(pnl/coll*100).toFixed(2)}%)</span>`:''):'—', pnl!=null?(pnl<0?'neg':'pos'):'')}
       ${kv('XSP above short', dist!=null?`${dist.toFixed(1)}%`:'—', dist!=null&&dist<3?'neg':'')}
       ${kv('Max loss', fmtUsd(coll))}
-      ${kv('Expiry', esc(n.expiry||'—'))}
-      ${kv('Roll on', n.expiry?esc(rollDate(n.expiry))+' · 3:45pm':'—')}
+      ${kv('Expiry', n.expiry?esc(shortDate(n.expiry)):'—')}
+      ${kv('Roll on', n.expiry?esc(shortDate(rollDate(n.expiry)))+' · 3:45pm':'—')}
       ${kv('Stop hits near', stopX!=null?`XSP ~${Math.round(stopX)} <span style="opacity:.75">(${((stopX/xsp-1)*100).toFixed(1)}%)</span>`:'—', stopX!=null&&(xsp-stopX)/xsp<0.03?'neg':'')}
       ${kv('Profit captured', captured!=null?`${Math.round(captured)}% <span style="opacity:.75">of max</span>`:'—', captured!=null?(captured<0?'neg':'pos'):'')}
       ${kv('Days left', daysLeft!=null?`${daysLeft} <span style="opacity:.75">to roll</span>`:'—')}
@@ -1290,7 +1291,7 @@ async function refresh(){
   if(!SESSION || !CUR) return;
   try{
     const snap = await api('snapshot');
-    LAST = snap; $('conn').hidden = true;
+    LAST = snap; $('conn').hidden = DEMO;                    // keep the demo banner up
     // the server sends the user's current account list; an old login token may still list accounts since removed
     const acc = snap.viewer && snap.viewer.accounts;
     if(Array.isArray(acc) && acc.join()!==(SESSION.accounts||[]).join()){ SESSION.accounts = acc; store.set('vc_session', SESSION); tabs(); }
@@ -1307,7 +1308,39 @@ async function refresh(){
     setConn('!','--warn',`<b>Live read failed.</b> ${esc(e.message)}`); liveUnavailable('The live read did not complete.');
   }
 }
-if(SESSION && SESSION.token) start(); else signOut();
+// ---- Demo mode, local copies only: http://localhost:8765/dashboard/?demo (add &days=N for a longer history).
+// Generated data in the snapshot's shape; nothing is sent to the server and the saved login is untouched.
+const DEMO = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('demo');
+function demoSnapshot(){
+  const nDays = +(new URLSearchParams(location.search).get('days')) || 200;
+  const now = new Date(), iso = d => d.toISOString().slice(0,10);
+  const days = []; let d = new Date(now); d.setDate(d.getDate() - Math.round(nDays*7/5)); let v = 5000, x = 760;
+  while(d <= now){ if(d.getDay()%6){ const i = days.length; x *= 1+Math.sin(i/9)*0.004; v *= 1+Math.sin(i/7)*0.003+0.0006;
+    days.push({d:iso(d), account_value:+v.toFixed(2), cash:+(v+20).toFixed(2), xsp:+x.toFixed(2), vix:+(18+3*Math.sin(i/11)).toFixed(2),
+      vix_live:+(17.5+3*Math.sin(i/10)).toFixed(2), vix_hi20:21.2, gate_ok:true, gate_reason:'VIX < 32', spread_mark:null}); }
+    d.setDate(d.getDate()+1); }
+  const open = days[Math.max(0, days.length-13)].d, exp = new Date(now); exp.setDate(exp.getDate()+16); const expiry = iso(exp);
+  const short = Math.floor(x*0.89), long = short - Math.round(x*0.05), credit = 0.33;
+  const runs = []; days.filter(r=>r.d>=open).forEach((r,i)=>{ [[9,40,'decide'],[10,45,'am'],[13,45,'pm'],[15,45,'final']].forEach(([h,m,s],k)=>{
+    const t = new Date(r.d+'T00:00:00Z'); t.setUTCHours(h+5, m); if(t>now) return;
+    const cost = Math.max(0.05, +(credit - 0.012*(i+k/4) + 0.18*Math.sin(i/2+k)).toFixed(2));
+    r.spread_mark = cost; runs.push({d:r.d, ts:t.toISOString(), slot:s, xsp:r.xsp, vix:r.vix_live, cost}); }); });
+  const today = iso(now), beats = runs.filter(r=>r.d>=days[Math.max(0,days.length-3)].d).map(r=>({ts:r.ts, kind:'heartbeat', message:`run complete phase=${r.slot} dry_run=False`}));
+  const t = {id:1, leg:'S', structure:`SELL XSP P${short}/${long} ${expiry}`, open_date:open, close_date:null, credit, collateral:(short-long-credit)*100, fees:0.78,
+    note:JSON.stringify({qty:1, short, long, credit, expiry, id_short:'S', id_long:'L'})};
+  const last = runs[runs.length-1] || {cost:credit};
+  return {strategy:{status:'live', rules:[]}, account:{id:'demo', display_name:'Demo', contracts:10, target_contracts:1, rh_account_number:null},
+    days, positions:[{rh_option_id:'S', mark:last.cost+0.38, updated_at:now.toISOString()},{rh_option_id:'L', mark:0.38, updated_at:now.toISOString()}],
+    trades:[t], activity:[], pending:[], flows:[{d:days[0].d, amount:5000, kind:'manual'}], interest:[{d:today.slice(0,8)+'02', amount:3.02}],
+    beats, interest_sync:{ts:now.toISOString(), message:'interest payments: 1 row(s) from Robinhood, 1 for this account'}, runs,
+    viewer:{user:'demo', owner:true, admin:false, accounts:['demo']}};
+}
+if(DEMO){
+  SESSION = {token:'demo', user:'demo', accounts:['demo'], admin:false};
+  store.set = () => {};                                         // never overwrite the saved login from demo mode
+  api = async op => op==='snapshot' ? demoSnapshot() : {ok:true, result:'demo: nothing sent'};
+  start(); setConn('·','--warn','<b>Demo data.</b> Generated locally; nothing here is real and nothing is sent.');
+} else if(SESSION && SESSION.token) start(); else signOut();
 setInterval(refresh, 120000);
 </script>
 </body>
