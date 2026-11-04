@@ -1001,13 +1001,17 @@ function spreadVsBt(now, k){
   const fin=[...BT_SPREADS].sort((a,b)=>a-b), fmed=fin[Math.round(0.5*(fin.length-1))], flost=Math.round(fin.filter(v=>v<0).length/fin.length*100);
   const lo=-100, hi=100, X=v=>(Math.min(hi,Math.max(lo,v))-lo)/(hi-lo)*100;
   const s=v=>`${v>=0?'+':'−'}${Math.abs(Math.round(v))}%`;
-  const bar=`<div style="position:relative;height:22px;margin:8px 0 2px">
+  const lab=(v,txt,color,pos)=>`<span class="mono" style="position:absolute;${pos}:0;left:${X(v)}%;transform:translateX(${X(v)<12?'0':X(v)>88?'-100%':'-50%'});font-size:10.5px;color:${color};white-space:nowrap">${txt}</span>`;
+  const bar=`<div style="position:relative;height:56px;margin:8px 0 2px">
+      ${lab(now,'this spread '+s(now),'var(--accent)','top')}
+      ${lab(q[10],'median '+s(q[10]),'var(--muted)','bottom')}
+      <div style="position:absolute;left:0;right:0;top:17px;height:22px">
       <span style="position:absolute;left:${X(q[2])}%;width:${X(q[18])-X(q[2])}%;top:7px;height:8px;background:var(--axis);opacity:.45;border-radius:4px"></span>
       <span style="position:absolute;left:${X(q[5])}%;width:${X(q[15])-X(q[5])}%;top:7px;height:8px;background:var(--axis);border-radius:4px"></span>
       <span style="position:absolute;left:calc(${X(q[10])}% - 1px);top:4px;width:2px;height:14px;background:var(--ink-2)"></span>
       <span style="position:absolute;left:${X(0)}%;top:2px;width:1px;height:18px;background:var(--rule)"></span>
       <span style="position:absolute;left:calc(${X(now)}% - 5px);top:6px;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--surface)"></span>
-    </div>
+    </div></div>
     <div class="mono" style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted)"><span>≤−100%</span><span>0</span><span>+100%</span></div>`;
   return `<div style="margin:14px 0 0">
     <div class="kv" style="font-size:12.5px">This spread <b class="mono ${now<0?'neg':'pos'}">${s(now)}</b> with ${k} trading day${k===1?'':'s'} left · ahead of <b>${Math.round(pct)}%</b> of backtest spreads at the same point <span style="color:var(--muted)">(median ${s(q[10])})</span></div>
