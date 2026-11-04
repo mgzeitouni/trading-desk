@@ -758,19 +758,20 @@ function renderSpread(t, pos, xsp){
   const fees = t.fees!=null ? +t.fees : FEE_LEG*2*qty;                        // entry fees paid; a buy-back costs about the same again
   const pnl = cost!=null ? (credit-cost)*100*qty - fees : null;
   const dist = xsp ? (xsp-n.short)/xsp*100 : null;
+  const coll = +t.collateral || ((n.short-n.long-credit)*100*qty);           // collateral at risk = the max loss
   const kv=(k,v,c='')=>`<div class="stat"><dt>${k}</dt><dd class="mono ${c}">${v}</dd></div>`;
   el.innerHTML = `<div class="kv" style="margin-bottom:10px"><b>${esc(t.structure)}</b> · opened ${esc(t.open_date)}${qty>1?` · ${qty} contracts`:''}</div>
     <dl class="stats" style="margin-top:0">
       ${kv('Credit', fmt2(credit))}
       ${kv('Cost to close', cost!=null?fmt2(cost):'—', cost!=null&&cost>=stop?'neg':'')}
       ${kv('Stop at 6×', fmt2(stop))}
-      ${kv('Open P&L, net of fees', pnl!=null?(pnl>=0?'+':'')+'$'+fmt2(pnl):'—', pnl!=null?(pnl<0?'neg':'pos'):'')}
+      ${kv('Open P&L, net of fees', pnl!=null?(pnl>=0?'+':'−')+'$'+fmt2(Math.abs(pnl))+(coll>0?` <span style="opacity:.75">(${pnl>=0?'+':'−'}${Math.abs(pnl/coll*100).toFixed(2)}%)</span>`:''):'—', pnl!=null?(pnl<0?'neg':'pos'):'')}
       ${kv('XSP above short', dist!=null?`${dist.toFixed(1)}%`:'—', dist!=null&&dist<3?'neg':'')}
-      ${kv('Max loss', fmtUsd(+t.collateral||((n.short-n.long-credit)*100*qty)))}
+      ${kv('Max loss', fmtUsd(coll))}
       ${kv('Expiry', esc(n.expiry||'—'))}
       ${kv('Roll on', n.expiry?esc(rollDate(n.expiry))+' · 3:45pm':'—')}
     </dl>
-    <div class="cap" style="margin:8px 0 0">${marksAsOf(pos)?`<b>Prices as of ${esc(marksAsOf(pos))}.</b> `:''}Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes. Open P&L is after $${fmt2(fees)} of entry fees; buying it back would cost about $${fmt2(FEE_LEG*2*qty)} more, expiring costs nothing.</div>`;
+    <div class="cap" style="margin:8px 0 0">${marksAsOf(pos)?`<b>Prices as of ${esc(marksAsOf(pos))}.</b> `:''}Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes. Open P&L is after $${fmt2(fees)} of entry fees, and the % is of the ${fmtUsd(coll)} collateral (the max loss); buying it back would cost about $${fmt2(FEE_LEG*2*qty)} more, expiring costs nothing.</div>`;
 }
 
 function render(snap, storedAt){
