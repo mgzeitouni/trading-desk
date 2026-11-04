@@ -905,7 +905,25 @@ function drawLoan(el, rows, days, flows){
   const line=(k,c,dash)=>{ const q=pts.map((p,i)=>p[k]==null?null:`${xs(i).toFixed(1)},${ys(p[k]).toFixed(1)}`).filter(Boolean); return q.length?`<path d="M${q.join('L')}" fill="none" stroke="${c}" stroke-width="2" ${dash?'stroke-dasharray="5 4"':''} stroke-linejoin="round"/>`:''; };
   [0,N-1].filter((v,i,a)=>a.indexOf(v)===i).forEach(i=>{ g+=`<text x="${xs(i)}" y="${H-B+17}" text-anchor="${i===0&&N>1?'start':'end'}" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fmtD(pts[i].d)}</text>`; });
   const chk=(ok,label,val)=>`<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--rule)"><span class="mono" style="width:14px;color:${ok==null?'var(--muted)':ok?'var(--good)':'var(--crit)'}">${ok==null?'·':ok?'✓':'!'}</span><span style="flex:1;font-size:12.5px">${label}</span><span class="mono" style="font-size:12.5px">${val}</span></div>`;
-  el.innerHTML=`
+  // ---- This month, in plain words: what paying, paying half or rolling the interest each does to the numbers.
+  // Not a recommendation: it lays out consequences from the statement and the loan backtest
+  // (research v9_qqq/loan_schedules.py: rolling all interest ended ~19% ahead of paying monthly, half ~10%, median start).
+  const mInt=n(r.interest_charged)||0, mPaid=n(r.interest_paid)||0, mRolled=n(r.interest_capitalized)||0;
+  const ltvAt=b=>pledged?b/pledged:null, roomAt=b=>callAt?1-b/callAt:null;
+  const monthsLeft=12-(+r.statement_date.slice(5,7));
+  const yearInt=charged+bal*(rate||0)*monthsLeft/12;            // this year's interest if the rate holds
+  const balRoll=bal+(rate||0)*bal*monthsLeft/12, balPay=bal-rolled;  // year-end balance: roll the rest vs pay the year's interest
+  const in5=f=>bal*Math.pow(1+(rate||0)*f,5);
+  const monName=new Date(r.statement_date+'T12:00:00').toLocaleDateString('en-US',{month:'long'});
+  const story=`<div class="kv" style="font-size:13px;line-height:1.6;margin:0 0 12px;padding:10px 12px;border-left:3px solid var(--accent);background:var(--surface-2);border-radius:0">
+      <b>${esc(monName)} statement.</b> Balance ${fmtUsd(bal)} at ${pct(rate,2)}. Interest this month ${fmtUsd(mInt)}${mPaid?`, ${fmtUsd(mPaid)} paid`:''}${mRolled?`, ${fmtUsd(mRolled)} added to the loan`:''}.
+      LTV ${pct(ltv)}${room!=null?`; the portfolio could fall ${pct(room)} before a call`:''}. The strategy is ${dd==null?'—':dd>-0.05?'at its high':`${Math.abs(dd).toFixed(1)}% below its high`}.<br>
+      <b>If you pay this month’s interest:</b> strategy −${fmtUsd(mInt)}, loan ${fmtUsd(bal-mRolled)}, LTV ${pct(ltvAt(bal-mRolled))}${callAt?`, room before a call ${pct(roomAt(bal-mRolled))}`:''}.
+      <b>If you roll it:</b> loan ${fmtUsd(bal-mRolled+mInt)}, LTV ${pct(ltvAt(bal-mRolled+mInt))}${callAt?`, room before a call ${pct(roomAt(bal-mRolled+mInt))}`:''}.<br>
+      <b>At year-end</b> (about ${fmtUsd(yearInt)} of interest for ${yr}): paying all of it leaves the loan near ${fmtUsd(balPay)} (LTV ${pct(ltvAt(balPay))}); paying half, near ${fmtUsd((balPay+balRoll)/2)}; rolling it, near ${fmtUsd(balRoll)} (LTV ${pct(ltvAt(balRoll))}${callAt?`, room before a call ${pct(roomAt(balRoll))}`:''}).
+      Kept up for 5 years at this rate, the loan would stay ${fmtUsd(bal)} if you pay, grow to about ${fmtUsd(in5(0.5))} if you pay half, or ${fmtUsd(in5(1))} if you roll; in the backtest, rolling ended about 19% further ahead than paying monthly and half about 10%, with the same worst moments.
+    </div>`;
+  el.innerHTML=`${story}
     <dl class="stats" style="margin-top:0">
       ${tile('Loan balance', fmtUsd(bal), `${esc(r.lender||'')} · statement ${esc(r.statement_date)}`)}
       ${tile('Rate', rate!=null?pct(rate,2):'—', rate!=null?`${fmtUsd(bal*rate/12)} a month at this balance`:'')}
