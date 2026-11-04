@@ -324,11 +324,13 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <button type="button" role="tab" aria-selected="false" data-mode="history">History</button>
         <button type="button" role="tab" aria-selected="false" data-mode="risk">Risk</button>
         <button type="button" role="tab" aria-selected="false" data-mode="exp">Expected Annual</button>
+        <button type="button" role="tab" aria-selected="false" data-mode="loan">Loan</button>
       </div>
       <figure style="margin-top:10px" id="eqFig"><div id="eqWrap"></div></figure>
       <div id="ledgerWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
       <div id="riskWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
       <div id="expWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
+      <div id="loanWrap" style="margin-top:12px" hidden><div class="empty">Loading…</div></div>
     </section>
 
     <section class="card span12" id="setCard">
@@ -870,6 +872,59 @@ function drawExpected(el, days, flows){
   }));
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
 }
+// ---- Loan tab: the Morgan Stanley securities-based line (LAL) that may fund the strategy, from monthly statements
+// (table loan_statements, entered from each statement; figures only). LTV = balance ÷ pledged portfolio value.
+// Room before a call = how far the pledged portfolio can fall before the balance reaches the call level: the statement's
+// maintenance/call level if it shows one, else the lending value (lending value moves with the portfolio).
+// Year-end review (decided 2026-11-04): no monthly interest payments; each December choose to pay that year's interest,
+// half, or roll it, mainly on the strategy's drawdown. See ai-trading notes/2026-11-04_LOAN_INTEREST_SCHEDULES.md.
+const LTV_CEILING = 0.35;                              // Morris's comfort ceiling for the review (adjust when decided)
+function drawLoan(el, rows, days, flows){
+  if(!rows.length){
+    el.innerHTML=`<div class="empty"><b>No loan statements yet</b>When you draw the Morgan Stanley line, share each monthly statement and its figures show up here: loan balance, rate, interest charged, paid and rolled, your loan-to-value, how far the portfolio can fall before a call, and the strategy’s value net of the loan. The year-end review on Dec 15 reads from here.</div>`;
+    return;
+  }
+  const r=rows[rows.length-1], n=v=>v==null?null:+v;
+  const bal=n(r.loan_balance), pledged=n(r.pledged_value), lend=n(r.lending_value), maint=n(r.maintenance_value), rate=n(r.rate);
+  const ltv=pledged?bal/pledged:null, callAt=maint||lend, room=callAt?1-bal/callAt:null;
+  const yr=r.statement_date.slice(0,4), ytd=rows.filter(x=>x.statement_date.startsWith(yr));
+  const sum=k=>ytd.reduce((a,x)=>a+(+x[k]||0),0);
+  const charged=sum('interest_charged'), paid=sum('interest_paid'), rolled=sum('interest_capitalized');
+  const vrows=days.filter(d=>d.account_value!=null), strat=vrows.length?+vrows[vrows.length-1].account_value:null;
+  const since=EQ_SINCE||''; const vs=vrows.filter(d=>d.d>=since).map(d=>+d.account_value), hi=vs.length?Math.max(...vs):null;
+  const dd=hi&&strat!=null?(strat/hi-1)*100:null;
+  const pct=(v,d=1)=>v==null?'—':`${(v*100).toFixed(d)}%`;
+  const tile=(k,v,sub,cls='')=>`<div class="stat"><dt>${k}</dt><dd class="mono ${cls}">${v}</dd>${sub?`<div class="sn">${sub}</div>`:''}</div>`;
+  // statement history chart: loan balance vs strategy account value at each statement date
+  const pts=rows.map(x=>{ const sv=vrows.filter(d=>d.d<=x.statement_date).pop(); return {d:x.statement_date, bal:+x.loan_balance, strat:sv?+sv.account_value:null, ltv:x.pledged_value?x.loan_balance/x.pledged_value:null}; });
+  const W=420,H=150,L=58,R=14,T=12,B=26,N=pts.length;
+  const vals=pts.flatMap(p=>[p.bal,p.strat]).filter(v=>v!=null); let lo=Math.min(0,...vals), hiV=Math.max(...vals)*1.1;
+  const xs=i=>N>1?L+i*(W-L-R)/(N-1):(L+W-R)/2, ys=v=>T+(hiV-v)/(hiV-lo)*(H-T-B);
+  const fmtD=x=>new Date(x+'T12:00:00').toLocaleDateString('en-US',{month:'short',year:'2-digit'});
+  let g=''; for(let k=0;k<=3;k++){ const v=lo+k*(hiV-lo)/3; g+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--grid)"/><text x="${L-7}" y="${ys(v)+4}" text-anchor="end" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fmtUsd(v)}</text>`; }
+  const line=(k,c,dash)=>{ const q=pts.map((p,i)=>p[k]==null?null:`${xs(i).toFixed(1)},${ys(p[k]).toFixed(1)}`).filter(Boolean); return q.length?`<path d="M${q.join('L')}" fill="none" stroke="${c}" stroke-width="2" ${dash?'stroke-dasharray="5 4"':''} stroke-linejoin="round"/>`:''; };
+  [0,N-1].filter((v,i,a)=>a.indexOf(v)===i).forEach(i=>{ g+=`<text x="${xs(i)}" y="${H-B+17}" text-anchor="${i===0&&N>1?'start':'end'}" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fmtD(pts[i].d)}</text>`; });
+  const chk=(ok,label,val)=>`<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-bottom:1px solid var(--rule)"><span class="mono" style="width:14px;color:${ok==null?'var(--muted)':ok?'var(--good)':'var(--crit)'}">${ok==null?'·':ok?'✓':'!'}</span><span style="flex:1;font-size:12.5px">${label}</span><span class="mono" style="font-size:12.5px">${val}</span></div>`;
+  el.innerHTML=`
+    <dl class="stats" style="margin-top:0">
+      ${tile('Loan balance', fmtUsd(bal), `${esc(r.lender||'')} · statement ${esc(r.statement_date)}`)}
+      ${tile('Rate', rate!=null?pct(rate,2):'—', rate!=null?`${fmtUsd(bal*rate/12)} a month at this balance`:'')}
+      ${tile('Loan-to-value', pct(ltv), pledged?`on ${fmtUsd(pledged)} pledged`:'', ltv!=null&&ltv>LTV_CEILING?'neg':'')}
+      ${tile('Room before a call', room!=null?`−${pct(room,0)}`:'—', callAt?`portfolio drop until the balance hits ${maint?'the call level':'lending value'}`:'statement shows no lending value', room!=null&&room<0.3?'neg':'')}
+      ${tile(`Interest ${yr}`, fmtUsd(charged), `paid ${fmtUsd(paid)} · rolled ${fmtUsd(rolled)}`)}
+      ${tile('Strategy net of loan', strat!=null?fmtUsd(strat-bal):'—', strat!=null?`${fmtUsd(strat)} strategy − ${fmtUsd(bal)} loan`:'', strat!=null&&strat<bal?'neg':'pos')}
+    </dl>
+    <div class="lg" style="margin:12px 0 4px"><span><i class="sw" style="background:var(--accent)"></i> Strategy account</span><span><i class="sw" style="background:var(--ink-2)"></i> Loan balance</span></div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Loan balance and strategy account value at each statement">${g}${line('strat','var(--accent)')}${line('bal','var(--ink-2)',true)}</svg>
+    <div style="margin-top:12px"><div class="kv" style="font-size:12px;color:var(--ink-2);margin-bottom:2px">Year-end review (each December: pay this year’s interest, half, or roll it)</div>
+      ${chk(dd==null?null:dd>-10, 'Strategy drawdown from its high', dd==null?'—':(dd>-0.05?'at its high':`${dd.toFixed(1)}%`))}
+      ${chk(ltv==null?null:ltv<=LTV_CEILING, `Loan-to-value under ${pct(LTV_CEILING,0)}`, pct(ltv))}
+      ${chk(rate==null?null:rate*100<EXP_PRE-5, `Rate well below the strategy’s expected ${pc0(EXP_PRE)}`, rate!=null?pct(rate,2):'—')}
+      ${chk(null, 'Next year’s income still sheltered by real estate losses', 'ask CPA')}
+    </div>
+    <p class="cap" style="margin:8px 0 0">From your monthly Morgan Stanley statements (figures only). Checks lean toward rolling the interest when they pass and toward paying it when they don’t; the call is yours.</p>`;
+}
+const pc0=v=>`${v.toFixed(1)}%`;
 function drawRisk(el, days, flows){
   const all=riskSeries(days, flows), last=all[all.length-1], ok=last&&last.n>=RISK_MIN;
   const f=v=>v==null?'—':fmt2(v), kv=(k,v,sub)=>`<div class="stat"><dt>${k}</dt><dd class="mono">${v}</dd><div class="sn">${sub}</div></div>`;
@@ -913,8 +968,8 @@ function drawRisk(el, days, flows){
 document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.seg button').forEach(x=>{x.classList.toggle('on',x===b); x.setAttribute('aria-selected', x===b);});
   const md=b.dataset.mode;                                 // History and Risk swap the chart for their own panel
-  const panel=md==='history'||md==='risk'||md==='exp';
-  $('eqFig').hidden=panel; $('ledgerWrap').hidden=md!=='history'; $('riskWrap').hidden=md!=='risk'; $('expWrap').hidden=md!=='exp';
+  const panel=md==='history'||md==='risk'||md==='exp'||md==='loan';
+  $('eqFig').hidden=panel; $('ledgerWrap').hidden=md!=='history'; $('riskWrap').hidden=md!=='risk'; $('expWrap').hidden=md!=='exp'; $('loanWrap').hidden=md!=='loan';
   if(panel) return;
   EQ_MODE=b.dataset.mode; if(EQ_DATA) drawEquity($('eqWrap'), EQ_DATA.days, EQ_DATA.flows);
 }));
@@ -1140,6 +1195,7 @@ function render(snap, storedAt){
   renderLedger(snap.flows||[], snap.trades||[], snap.interest||[]);
   drawRisk($('riskWrap'), days, snap.flows||[]);
   drawExpected($('expWrap'), days, snap.flows||[]);
+  drawLoan($('loanWrap'), snap.loan||[], days, snap.flows||[]);
 
   const pos=snap.positions||[];
   renderSpread(mine, pos, xsp);
@@ -1491,6 +1547,10 @@ function demoSnapshot(){
     days, positions:[{rh_option_id:'S', mark:last.cost+0.38, updated_at:now.toISOString()},{rh_option_id:'L', mark:0.38, updated_at:now.toISOString()}],
     trades:[t], activity:[], pending:[], flows:[{d:days[0].d, amount:5000, kind:'manual'}], interest:[{d:today.slice(0,8)+'02', amount:3.02}],
     beats, interest_sync:{ts:now.toISOString(), message:'interest payments: 1 row(s) from Robinhood, 1 for this account'}, runs,
+    loan: (()=>{ const out=[]; let b=5000; for(let i=6;i>=1;i--){ const d=new Date(now); d.setDate(1); d.setMonth(d.getMonth()-i+1); d.setDate(0);
+      const it=+(b*0.056/12).toFixed(2), paidM=i%12===1?it:0; b=+(b+it-paidM).toFixed(2); const pv=15000*(1+0.03*Math.sin(i));
+      out.push({statement_date:iso(d), lender:'Morgan Stanley', loan_balance:b, interest_charged:it, interest_paid:paidM, interest_capitalized:+(it-paidM).toFixed(2), rate:0.056,
+        pledged_value:+pv.toFixed(0), lending_value:+(pv*0.6).toFixed(0), maintenance_value:null, principal_drawn:i===6?5000:0, principal_repaid:0}); } return out; })(),
     viewer:{user:'demo', owner:true, admin:false, accounts:['demo']}};
 }
 if(DEMO){
