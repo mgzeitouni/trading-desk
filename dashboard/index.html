@@ -505,6 +505,7 @@ function drawPosition(el, days, t, asOf, runs){
     <span><i class="sw" style="background:var(--crit)"></i> stop ${fmtPct(stopP)} (${fmtUsd((1-STOP_MULT)*credit*mult)})</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--ma)"></i> VIX</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>
+    ${STOP_XSP!=null?`<span><i class="sw" style="background:repeating-linear-gradient(90deg,var(--ink-2) 0 5px,transparent 5px 8px)"></i> XSP at the stop ~${Math.round(STOP_XSP)} (est.)</span>`:''}
     ${asOf?`<span class="mono" style="margin-left:auto;color:var(--muted)">prices as of ${esc(asOf)}</span>`:''}`;
   // One point per bot run (9:40, 10:45, 1:45, 3:45) from the chain snapshots; a day with no snapshot falls back to its
   // daily_state row. x = calendar day + the fraction of the 9:30–4:00 session at the run's time.
@@ -540,8 +541,8 @@ function drawPosition(el, days, t, asOf, runs){
     const half=Math.max((Math.max(...v)-Math.min(...v))/2*1.25, mid*minFrac), a=mid-half, b=mid+half;
     const top=T+band[0]*(H-T-B), bot=T+band[1]*(H-T-B), oy=x=>top+(b-x)/(b-a)*(bot-top);
     s+=`<path d="${pts.map((r,i)=>`${i?'L':'M'}${xr(r).toFixed(1)},${oy(+r[key]).toFixed(1)}`).join('')}" fill="none" stroke="${color}" stroke-width="1.25" opacity=".45" stroke-linejoin="round"/>`;
-    if(level!=null) s+=`<line x1="${L}" x2="${W-R}" y1="${oy(level).toFixed(1)}" y2="${oy(level).toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4" opacity=".8"/>`
-      + `<text x="${L+4}" y="${(oy(level)-4).toFixed(1)}" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono,monospace">XSP stop ~${Math.round(level)} (est.)</text>`;
+    if(level!=null) s+=`<line x1="${L}" x2="${W-R}" y1="${oy(level).toFixed(1)}" y2="${oy(level).toFixed(1)}" stroke="var(--ink-2)" stroke-width="1.5" stroke-dasharray="6 4"/>`
+      + `<text x="${W-R+6}" y="${(oy(level)+3.5).toFixed(1)}" font-size="10.5" fill="var(--ink-2)" font-family="IBM Plex Mono,monospace">XSP ${Math.round(level)}</text>`;
     const p=pts[pts.length-1];
     s+=`<circle cx="${xr(p)}" cy="${oy(+p[key])}" r="2.5" fill="${color}" opacity=".6"/><text x="${xr(p)+6}" y="${oy(+p[key])+3.5}" font-size="10" fill="${color}" opacity=".8" font-family="IBM Plex Mono,monospace">${label} ${(+p[key]).toFixed(dec)}</text>`;
   };
