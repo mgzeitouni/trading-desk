@@ -62,6 +62,13 @@ h1{font-size:23px; font-weight:700; letter-spacing:-.02em; margin:0; text-wrap:b
 .sub{color:var(--ink-2); margin:0 0 16px; max-width:66ch;}
 .sub a{color:var(--accent);}
 .stamp{margin-left:auto; font-size:11.5px; color:var(--muted);}
+.health{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:9px 14px; margin:0 0 14px; border-radius:8px;
+  background:var(--surface); border:1px solid var(--rule); font-size:12.5px; color:var(--ink-2);}
+.health .hd{display:inline-flex; align-items:center; gap:7px; color:var(--ink); font-weight:600;}
+.health .hd i{width:8px; height:8px; border-radius:50%; background:var(--good); display:inline-block;}
+.health.warn{background:var(--warn-bg); border-color:transparent;} .health.warn .hd{color:var(--warn-ink);} .health.warn .hd i{background:var(--warn);}
+.health.bad{background:var(--crit-bg); border-color:transparent;} .health.bad .hd{color:var(--crit);} .health.bad .hd i{background:var(--crit);}
+.health .mono{font-size:12px;}
 
 /* connector state strip */
 .conn{display:flex; gap:10px; align-items:flex-start; padding:11px 14px; border-radius:8px;
@@ -244,6 +251,8 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
     <span class="stamp mono" id="stamp">loading…</span>
   </header>
   <p class="sub">Monthly XSP put credit spread: 11% below the market, 5% wide, VIX-gated, 6× stop, rolled the Thursday before expiry. <a href="../strategy/">How it works</a></p>
+
+  <div class="health" id="health" hidden></div>
 
   <div class="conn" id="conn" hidden><span class="ic" id="connIc">·</span><span id="connMsg"></span></div>
 
@@ -428,12 +437,58 @@ function drawVix(el, days){
 const VIX_LG = `<span><i class="sw" style="background:var(--accent)"></i> VIX close</span>
   <span><i class="sw" style="background:var(--crit)"></i> 32 gate</span>
   <span><i class="sw" style="background:var(--ma)"></i> re-entry level (75% of 20-day high)</span>`;
+// ---- Bot health line: did each scheduled run (9:40 decide, 10:45, 1:45, 3:45 ET on trading days) report back?
+// Heartbeats are activity rows "run complete phase=<slot>". A slot counts as missed 25 minutes after its time.
+const RUN_SLOTS=[['decide',9*60+40],['am',10*60+45],['pm',13*60+45],['final',15*60+45]];
+const SLOT_LABEL={decide:'9:40',am:'10:45',pm:'1:45',final:'3:45'};
+const NYSE_HOLIDAYS=new Set(['2026-11-26','2026-12-25','2027-01-01','2027-01-18','2027-02-15','2027-03-26','2027-05-31',
+  '2027-06-18','2027-07-05','2027-09-06','2027-11-25','2027-12-24']);   // add next year's list each December
+const MISS_GRACE=25;
+function etParts(dt){
+  const p=Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',
+    hour:'2-digit',minute:'2-digit',hourCycle:'h23',weekday:'short'}).formatToParts(dt).map(x=>[x.type,x.value]));
+  return {d:`${p.year}-${p.month}-${p.day}`, mins:(+p.hour)*60+(+p.minute), wd:p.weekday};
+}
+const isTradingDay=(d,wd)=>!['Sat','Sun'].includes(wd) && !NYSE_HOLIDAYS.has(d);
+const fmtEtTime=ts=>new Date(ts).toLocaleTimeString('en-US',{timeZone:'America/New_York',hour:'numeric',minute:'2-digit'});
+const hhmm=m=>{const h=Math.floor(m/60), mm=String(m%60).padStart(2,'0'); return `${h>12?h-12:h}:${mm} ${h>=12?'PM':'AM'}`;};
+function renderHealth(snap){
+  const el=$('health'), now=etParts(new Date());
+  const beats=(snap.beats||[]).filter(b=>b.kind==='heartbeat').map(b=>({...b, ...etParts(new Date(b.ts)), phase:(String(b.message).match(/phase=(\w+)/)||[])[1]}));
+  const dog=(snap.beats||[]).filter(b=>b.kind==='watchdog').pop();
+  const ranOn=d=>new Set(beats.filter(b=>b.d===d).map(b=>b.phase));
+  const today=isTradingDay(now.d, now.wd);
+  const due=today?RUN_SLOTS.filter(([,m])=>now.mins>=m+MISS_GRACE):[];
+  const doneToday=ranOn(now.d), missed=due.filter(([s])=>!doneToday.has(s));
+  // previous trading day = latest day before today with any heartbeat
+  const prevD=[...new Set(beats.map(b=>b.d))].filter(d=>d<now.d).sort().pop();
+  const last=beats[beats.length-1];
+  const next=today?RUN_SLOTS.find(([,m])=>m>now.mins):null;
+  const recentAlert=(snap.activity||[]).find(a=>a.kind==='alert' && Date.now()-new Date(a.ts)<24*36e5);
+  const isync=snap.interest_sync, im=isync&&String(isync.message).match(/(\d+) for this account/);
+  let cls='', head='Bot healthy';
+  if(missed.length){ cls='bad'; head=`Missed run${missed.length>1?'s':''}: ${missed.map(([s])=>SLOT_LABEL[s]).join(', ')}`; }
+  else if(recentAlert){ cls='warn'; head='Bot alert'; }
+  else if(!today){ head='Market closed'; }
+  const bits=[];
+  bits.push(`<span class="hd"><i></i>${esc(head)}</span>`);
+  if(recentAlert) bits.push(`<span>${esc(String(recentAlert.message).slice(0,90))}</span>`);
+  if(last) bits.push(`<span class="mono">last run ${last.d===now.d?'':esc(fmtDayShort(last.d))+' '}${esc(fmtEtTime(last.ts))} ✓</span>`);
+  if(today && next) bits.push(`<span class="mono">next ${hhmm(next[1])}</span>`);
+  if(today) bits.push(`<span class="mono">today ${RUN_SLOTS.filter(([s])=>doneToday.has(s)).length}/4</span>`);
+  if(prevD) bits.push(`<span class="mono">${esc(fmtDayShort(prevD))} ${ranOn(prevD).size}/4</span>`);
+  if(dog) bits.push(`<span class="mono">watchdog ${/:\s*OK\b|\bOK\b/.test(dog.message)?'✓':'⚠'} ${esc(fmtEtTime(dog.ts))}</span>`);
+  bits.push(`<span class="mono">interest sync ${isync?`${im?im[1]:'?'} found ${esc(fmtDayShort(etParts(new Date(isync.ts)).d))}`:'not run yet'}</span>`);
+  el.className='health '+cls; el.innerHTML=bits.join(''); el.hidden=false;
+}
+function fmtDayShort(d){ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'numeric',day:'numeric'}); }
+
 // When the open legs' marks were last refreshed (positions.updated_at), e.g. "Nov 2, 10:45 AM ET"
 function marksAsOf(pos){
   const ts=pos.map(p=>p.updated_at).filter(Boolean).sort().pop(); if(!ts) return null;
   return new Date(ts).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' ET';
 }
-function drawPosition(el, days, t, asOf){
+function drawPosition(el, days, t, asOf, runs){
   if(!t){ $('chartH').textContent='VIX, last 60 days'; $('chartLg').innerHTML=VIX_LG; drawVix(el, days); return; }
   let nt={}; try{ nt = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
   const credit=+(nt.credit ?? t.credit ?? 0), mult=100*(+(nt.qty||1));
@@ -447,11 +502,23 @@ function drawPosition(el, days, t, asOf){
     <span style="opacity:.75"><i class="sw" style="background:var(--ma)"></i> VIX</span>
     <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP</span>
     ${asOf?`<span class="mono" style="margin-left:auto;color:var(--muted)">prices as of ${esc(asOf)}</span>`:''}`;
-  const rows=days.filter(r=>r.d>=t.open_date && (!nt.expiry || r.d<=nt.expiry) && r.spread_mark!=null).map(r=>({...r, usd:(credit-(+r.spread_mark))*mult, pnl:credit?(credit-(+r.spread_mark))/credit*100:0}));
-  if(!rows.length){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>No marks yet</b>The chart fills in as the bot records the spread’s value at each run.</div>'; return; }
+  // One point per bot run (9:40, 10:45, 1:45, 3:45) from the chain snapshots; a day with no snapshot falls back to its
+  // daily_state row. x = calendar day + the fraction of the 9:30–4:00 session at the run's time.
+  // Before the 11/5 fix the 9:40 run read XSP as the prior day's close, so those XSP points are left out.
   const day=d=>Math.round(new Date(d+'T12:00:00')/864e5), d0=day(t.open_date), d1=Math.max(day(nt.expiry||t.open_date), d0+1);
+  const inLife=d=>d>=t.open_date && (!nt.expiry || d<=nt.expiry);
+  const frac=ts=>{ const m=etParts(new Date(ts)).mins; return Math.min(1,Math.max(0,(m-570)/390)); };
+  const mk=(r,cost)=>({...r, spread_mark:cost, usd:(credit-cost)*mult, pnl:credit?(credit-cost)/credit*100:0});
+  const fromRuns=(runs||[]).filter(r=>inLife(r.d) && r.cost!=null).map(r=>mk({d:r.d, ts:r.ts, slot:r.slot, x:day(r.d)+frac(r.ts),
+    xsp:(r.slot==='decide' && r.d<'2026-11-05')?null:r.xsp, vix_live:r.vix}, +r.cost));
+  const runDays=new Set(fromRuns.map(r=>r.d));
+  const fromDays=days.filter(r=>inLife(r.d) && r.spread_mark!=null && !runDays.has(r.d)).map(r=>mk({...r, x:day(r.d)+0.95, slot:null}, +r.spread_mark));
+  const rows=fromRuns.concat(fromDays).sort((a,b)=>a.x-b.x);
+  if(!rows.length){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>No marks yet</b>The chart fills in as the bot records the spread’s value at each run.</div>'; return; }
   const W=640,H=220,L=52,R=74,T=12,B=28;
-  const xs=d=>L+(day(d)-d0)/(d1-d0)*(W-L-R);
+  const xs=d=>L+(day(d)-d0)/(d1-d0)*(W-L-R);           // a date (axis labels)
+  const xr=r=>L+(r.x-d0)/(d1-d0)*(W-L-R);              // a run
+  const big=(r,i)=>i===rows.length-1 || r.slot==='final' || r.slot==null;
   const pv=rows.map(r=>r.pnl).concat([maxP, stopP, 0]);
   let lo=Math.min(...pv), hi=Math.max(...pv); const pad=(hi-lo)*0.06||10; lo-=pad; hi+=pad;
   const ys=v=>T+(hi-v)/(hi-lo)*(H-T-B);
@@ -468,27 +535,28 @@ function drawPosition(el, days, t, asOf){
     const v=pts.map(r=>+r[key]), mid=(Math.min(...v)+Math.max(...v))/2;
     const half=Math.max((Math.max(...v)-Math.min(...v))/2*1.25, mid*minFrac), a=mid-half, b=mid+half;
     const top=T+band[0]*(H-T-B), bot=T+band[1]*(H-T-B), oy=x=>top+(b-x)/(b-a)*(bot-top);
-    s+=`<path d="${pts.map((r,i)=>`${i?'L':'M'}${xs(r.d).toFixed(1)},${oy(+r[key]).toFixed(1)}`).join('')}" fill="none" stroke="${color}" stroke-width="1.25" opacity=".45" stroke-linejoin="round"/>`;
+    s+=`<path d="${pts.map((r,i)=>`${i?'L':'M'}${xr(r).toFixed(1)},${oy(+r[key]).toFixed(1)}`).join('')}" fill="none" stroke="${color}" stroke-width="1.25" opacity=".45" stroke-linejoin="round"/>`;
     const p=pts[pts.length-1];
-    s+=`<circle cx="${xs(p.d)}" cy="${oy(+p[key])}" r="2.5" fill="${color}" opacity=".6"/><text x="${xs(p.d)+6}" y="${oy(+p[key])+3.5}" font-size="10" fill="${color}" opacity=".8" font-family="IBM Plex Mono,monospace">${label} ${(+p[key]).toFixed(dec)}</text>`;
+    s+=`<circle cx="${xr(p)}" cy="${oy(+p[key])}" r="2.5" fill="${color}" opacity=".6"/><text x="${xr(p)+6}" y="${oy(+p[key])+3.5}" font-size="10" fill="${color}" opacity=".8" font-family="IBM Plex Mono,monospace">${label} ${(+p[key]).toFixed(dec)}</text>`;
   };
   overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60]); overlay('vix_live','var(--ma)','VIX',2,0.2,[0.62,0.92]);
   s+=`<line x1="${L}" x2="${W-R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)"/>`;
   [[maxP,'var(--good)','max'],[stopP,'var(--crit)','stop']].forEach(([v,c,lab])=>{
     s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R+6}" y="${ys(v)+4}" font-size="10.5" fill="${c}" font-family="IBM Plex Mono,monospace">${lab} ${fmtPct(v)}</text>`;
   });
-  s+=`<path d="${rows.map((r,i)=>`${i?'L':'M'}${xs(r.d).toFixed(1)},${ys(r.pnl).toFixed(1)}`).join('')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
-  rows.forEach((r,i)=>{ s+=`<circle cx="${xs(r.d)}" cy="${ys(r.pnl)}" r="${i===rows.length-1?4.5:2.5}" fill="var(--accent)" stroke="var(--surface)" stroke-width="${i===rows.length-1?2:1}"/>`; });
+  s+=`<path d="${rows.map((r,i)=>`${i?'L':'M'}${xr(r).toFixed(1)},${ys(r.pnl).toFixed(1)}`).join('')}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  rows.forEach((r,i)=>{ const last=i===rows.length-1; s+=`<circle cx="${xr(r)}" cy="${ys(r.pnl)}" r="${last?4.5:big(r,i)?3:1.8}" fill="var(--accent)" stroke="var(--surface)" stroke-width="${last?2:big(r,i)?1:0.5}"/>`; });
   [[t.open_date,'start','opened'],[nt.expiry,'end','expiry']].forEach(([d,anc,lab])=>{ if(d) s+=`<text x="${xs(d)}" y="${H-B+17}" text-anchor="${anc}" ${mono}>${lab} ${fmtD(d)}</text>`; });
   s+=`<line class="vx-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" opacity="0"/>`;
-  const w=Math.max(8,(W-L-R)/(d1-d0));
-  rows.forEach((r,i)=>{ s+=`<rect class="hit" x="${xs(r.d)-w/2}" y="${T}" width="${w}" height="${H-T-B}" data-i="${i}"/>`; });
+  // hover bands reach halfway to the neighbouring runs
+  rows.forEach((r,i)=>{ const a=i?(xr(rows[i-1])+xr(r))/2:xr(r)-6, b=i<rows.length-1?(xr(r)+xr(rows[i+1]))/2:xr(r)+6;
+    s+=`<rect class="hit" x="${a}" y="${T}" width="${Math.max(2,b-a)}" height="${H-T-B}" data-i="${i}"/>`; });
   el.innerHTML=s+'</svg>';
   const svg=el.querySelector('svg'), ch=svg.querySelector('.vx-ch');
   svg.querySelectorAll('.hit').forEach(h=>h.addEventListener('pointerenter',()=>{
     const r=rows[+h.dataset.i], b=h.getBoundingClientRect();
-    ch.setAttribute('x1',xs(r.d)); ch.setAttribute('x2',xs(r.d)); ch.setAttribute('opacity','1');
-    showTip(`<b>${esc(fmtD(r.d))}</b><div class="r"><span>P&amp;L</span><span>${fmtPct(r.pnl)} · ${r.usd>=0?'+':''}${fmtUsd(r.usd)}</span></div>`
+    ch.setAttribute('x1',xr(r)); ch.setAttribute('x2',xr(r)); ch.setAttribute('opacity','1');
+    showTip(`<b>${esc(fmtD(r.d))}${r.ts?` · ${esc(fmtEtTime(r.ts))} ET`:''}</b><div class="r"><span>P&amp;L</span><span>${fmtPct(r.pnl)} · ${r.usd>=0?'+':''}${fmtUsd(r.usd)}</span></div>`
       + `<div class="r"><span>Cost to close</span><span>${fmt2(r.spread_mark)}</span></div>`
       + (r.vix_live!=null?`<div class="r"><span>VIX</span><span>${fmt2(r.vix_live)}</span></div>`:'')
       + (r.xsp!=null?`<div class="r"><span>XSP</span><span>${fmt2(r.xsp)}</span></div>`:''), b.left+b.width/2, b.top);
@@ -841,7 +909,8 @@ function render(snap, storedAt){
   INTEREST=snap.interest||[];
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
-  drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'), marksAsOf(snap.positions||[]));
+  drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'), marksAsOf(snap.positions||[]), snap.runs||[]);
+  renderHealth(snap);
   renderLedger(snap.flows||[], snap.trades||[], snap.interest||[]);
   drawRisk($('riskWrap'), days, snap.flows||[]);
 
@@ -971,7 +1040,7 @@ $('siForm').onsubmit = async e => {
 function signOut(msg){
   SESSION = null; store.set('vc_session', null); LAST = null;
   $('main').hidden = true; $('signin').hidden = false; $('signOut').hidden = true; $('who').textContent = '';
-  $('acctTabs').innerHTML = '';
+  $('acctTabs').innerHTML = ''; $('health').hidden = true;
   setRedeem(false);
   if(msg){ $('siMsg').className='msg err'; $('siMsg').textContent = msg; }
 }
