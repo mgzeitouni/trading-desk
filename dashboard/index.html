@@ -534,16 +534,18 @@ function drawPosition(el, days, t, asOf, runs){
   // VIX and XSP: own min-max scales over the shown days, drawn first and faint so the P&L line reads on top
   // each in its own horizontal strip (fractions of the plot height) under the $0 line, where the P&L rarely goes;
   // the scale spans at least `minFrac` of the level (VIX ±20%, XSP ±3%) so a quiet stretch stays a flat line
-  const overlay=(key,color,label,dec,minFrac,band)=>{
+  const overlay=(key,color,label,dec,minFrac,band,level)=>{
     const pts=rows.filter(r=>r[key]!=null); if(!pts.length) return;
-    const v=pts.map(r=>+r[key]), mid=(Math.min(...v)+Math.max(...v))/2;
+    const v=pts.map(r=>+r[key]).concat(level!=null?[level]:[]), mid=(Math.min(...v)+Math.max(...v))/2;
     const half=Math.max((Math.max(...v)-Math.min(...v))/2*1.25, mid*minFrac), a=mid-half, b=mid+half;
     const top=T+band[0]*(H-T-B), bot=T+band[1]*(H-T-B), oy=x=>top+(b-x)/(b-a)*(bot-top);
     s+=`<path d="${pts.map((r,i)=>`${i?'L':'M'}${xr(r).toFixed(1)},${oy(+r[key]).toFixed(1)}`).join('')}" fill="none" stroke="${color}" stroke-width="1.25" opacity=".45" stroke-linejoin="round"/>`;
+    if(level!=null) s+=`<line x1="${L}" x2="${W-R}" y1="${oy(level).toFixed(1)}" y2="${oy(level).toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4 4" opacity=".8"/>`
+      + `<text x="${L+4}" y="${(oy(level)-4).toFixed(1)}" font-size="10" fill="var(--muted)" font-family="IBM Plex Mono,monospace">XSP stop ~${Math.round(level)} (est.)</text>`;
     const p=pts[pts.length-1];
     s+=`<circle cx="${xr(p)}" cy="${oy(+p[key])}" r="2.5" fill="${color}" opacity=".6"/><text x="${xr(p)+6}" y="${oy(+p[key])+3.5}" font-size="10" fill="${color}" opacity=".8" font-family="IBM Plex Mono,monospace">${label} ${(+p[key]).toFixed(dec)}</text>`;
   };
-  overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60]); overlay('vix_live','var(--ma)','VIX',2,0.2,[0.62,0.92]);
+  overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60],STOP_XSP); overlay('vix_live','var(--ma)','VIX',2,0.2,[0.62,0.92]);
   s+=`<line x1="${L}" x2="${W-R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)"/>`;
   [[maxP,'var(--good)','max'],[stopP,'var(--crit)','stop']].forEach(([v,c,lab])=>{
     s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R+6}" y="${ys(v)+4}" font-size="10.5" fill="${c}" font-family="IBM Plex Mono,monospace">${lab} ${fmtPct(v)}</text>`;
@@ -873,8 +875,9 @@ function stopLevel(S,ks,kl,ms,ml,expiry,stopCost){
   for(let x=S; x>kl; x-=0.25){ const b=(S-x)/S*100*0.005; if(bsPut(x,ks,T,vs+b)-bsPut(x,kl,T,vl+b)>=stopCost) return x; }
   return null;
 }
+let STOP_XSP = null;
 function renderSpread(t, pos, xsp){
-  const el=$('spreadWrap');
+  const el=$('spreadWrap'); STOP_XSP = null;
   if(!t){ el.innerHTML=`<div class="empty"><b>No spread open</b>The bot proposes one at 9:40 ET when the gate is open and the account can post the collateral.</div>`; return; }
   let n={}; try{ n = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
   const sh=pos.find(p=>String(p.rh_option_id)===String(n.id_short)), lg=pos.find(p=>String(p.rh_option_id)===String(n.id_long));
@@ -886,6 +889,7 @@ function renderSpread(t, pos, xsp){
   const dist = xsp ? (xsp-n.short)/xsp*100 : null;
   const coll = +t.collateral || ((n.short-n.long-credit)*100*qty);           // collateral at risk = the max loss
   const stopX = (cost!=null && xsp && n.expiry) ? (cost>=stop ? xsp : stopLevel(xsp, +n.short, +n.long, +sh.mark, +lg.mark, n.expiry, stop)) : null;
+  STOP_XSP = stopX;                                                          // the spread chart draws it as a grey dashed line
   const captured = cost!=null && credit ? (credit-cost)/credit*100 : null;   // before fees, as % of the max profit
   const today = new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
   const daysLeft = n.expiry ? Math.round((new Date(rollDate(n.expiry)+'T12:00:00')-new Date(today+'T12:00:00'))/864e5) : null;
@@ -988,13 +992,13 @@ function render(snap, storedAt){
   EQ_SINCE=(snap.flows||[]).filter(f=>f.kind==='restart').map(f=>f.d).sort().pop()||null;   // latest zero-amount 'restart' cash flow
   drawEquity($('eqWrap'), days, snap.flows||[]);
   renderMonthVsBt(days, snap.flows||[]);
-  drawPosition($('vixWrap'), days, (snap.trades||[]).find(t=>!t.close_date && t.leg==='S'), marksAsOf(snap.positions||[]), snap.runs||[]);
   renderHealth(snap);
   renderLedger(snap.flows||[], snap.trades||[], snap.interest||[]);
   drawRisk($('riskWrap'), days, snap.flows||[]);
 
   const pos=snap.positions||[];
   renderSpread(mine, pos, xsp);
+  drawPosition($('vixWrap'), days, mine, marksAsOf(pos), snap.runs||[]);   // after the card: uses its stop estimate
   $('posWrap').innerHTML = pos.length
     ? `<table><thead><tr><th>Leg</th><th>Contract</th><th>Side</th><th class="num">Qty</th><th class="num">Open</th><th class="num">Mark</th></tr></thead><tbody>`
       + pos.map(p=>`<tr><td class="mono">${esc(p.leg)}</td>
@@ -1071,6 +1075,14 @@ try{ SESSION = JSON.parse(store.get('vc_session')||'null'); }catch{ SESSION=null
 let CUR = null;               // account id on screen
 let LAST = null;              // last snapshot
 
+// A local copy on this machine (localhost) keeps its login alive: when the saved token has under 25 days left it
+// swaps it for a fresh 30-day one, so the sign-in page never comes back there. The public site keeps the 30-day login.
+const IS_LOCAL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+function tokenExp(tok){ try{ return JSON.parse(atob(String(tok).split('.')[0].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000; }catch{ return 0; } }
+async function renewLocalLogin(){
+  if(!IS_LOCAL || DEMO || !SESSION || !SESSION.token || tokenExp(SESSION.token)-Date.now() > 25*864e5) return;
+  try{ const j = await api('renew'); if(j.token){ SESSION.token = j.token; store.set('vc_session', JSON.stringify(SESSION)); } }catch{}
+}
 async function api(op, body={}){
   const r = await fetch(API, {method:'POST', headers:{'content-type':'application/json'},
     body: JSON.stringify({op, token: SESSION && SESSION.token, account: CUR, ...body})});
@@ -1291,10 +1303,11 @@ async function refresh(){
   if(!SESSION || !CUR) return;
   try{
     const snap = await api('snapshot');
-    LAST = snap; $('conn').hidden = DEMO;                    // keep the demo banner up
+    LAST = snap; $('conn').hidden = !DEMO;                   // keep the demo banner up
     // the server sends the user's current account list; an old login token may still list accounts since removed
     const acc = snap.viewer && snap.viewer.accounts;
-    if(Array.isArray(acc) && acc.join()!==(SESSION.accounts||[]).join()){ SESSION.accounts = acc; store.set('vc_session', SESSION); tabs(); }
+    if(Array.isArray(acc) && acc.join()!==(SESSION.accounts||[]).join()){ SESSION.accounts = acc; store.set('vc_session', JSON.stringify(SESSION)); tabs(); }
+    renewLocalLogin();
     // keep a half-typed form intact across the 2-minute refresh
     const typing = document.activeElement && $('setWrap').contains(document.activeElement);
     if(typing){ const keep=renderSettings; renderSettings=()=>{}; try{ render(snap, Date.now()); } finally{ renderSettings=keep; } }
@@ -1302,7 +1315,7 @@ async function refresh(){
   }catch(e){
     if(e.message==='signed out') return;
     if(e.message==='no access to this account' && CUR!==SESSION.user){   // that account was removed from this login
-      SESSION.accounts=(SESSION.accounts||[]).filter(a=>a!==CUR); store.set('vc_session', SESSION);
+      SESSION.accounts=(SESSION.accounts||[]).filter(a=>a!==CUR); store.set('vc_session', JSON.stringify(SESSION));
       history.replaceState(null,'',location.pathname+location.search); pickAccount(); tabs(); return refresh();
     }
     setConn('!','--warn',`<b>Live read failed.</b> ${esc(e.message)}`); liveUnavailable('The live read did not complete.');
