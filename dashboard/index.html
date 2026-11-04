@@ -792,7 +792,12 @@ function riskSeries(days, flows){
 // on both, at top brackets; a loss is credited at the same rate, as if it offsets other gains.
 const TAX_OPT = 0.6*0.238 + 0.4*0.408, TAX_INT = 0.408, TAX_NYC = 0.109 + 0.03876;
 const EXP_PRE = BT.cagr;                          // 18.5: v9 backtest, fees and interest included
-const EXP_AFTER = +(BT.cagr * 10.2/18.9).toFixed(1);   // research v9_qqq/after_tax2: $10k 18.9% pre-tax -> 10.2% federal + NY/NYC
+// Backtest after tax: about 14% of the backtest's return was cash interest (research v9_qqq/after_tax2, int_share), the
+// rest options P&L, so the blended tax = 86% × options rate + 14% × interest rate. (The study's year-by-year version,
+// with losses carried forward, gave 18.9% -> 10.2% on $10k; this simple version lands within a few tenths.)
+const BT_INT_SHARE = 0.14;
+const TAX_BLEND = (1-BT_INT_SHARE)*(TAX_OPT+TAX_NYC) + BT_INT_SHARE*(TAX_INT+TAX_NYC);
+const EXP_AFTER = +(BT.cagr * (1-TAX_BLEND)).toFixed(1);
 // Loan-funded: borrow the strategy's capital at a floating rate = Robinhood's cash yield + 2%, interest not deductible
 // (per Morris's CPA), so the net yield on the loan = after-tax return − loan rate. Uses today's rate for every day.
 const LOAN_SPREAD = 0.02, LOAN_RATE = CASH_APY + LOAN_SPREAD;
@@ -814,7 +819,7 @@ function expSeries(days, flows){
     const dO=r.opt-base.opt, dI=r.intr-base.intr;
     const Ra=R-(r.dep>0?(dO*(TAX_OPT+TAX_NYC)+dI*(TAX_INT+TAX_NYC))/r.dep:0);
     const pre=((1+R)*Math.pow(1+EXP_PRE/100,left)-1)*100, after=((1+Ra)*Math.pow(1+EXP_AFTER/100,left)-1)*100;
-    return {d:r.d, from, left, pre, after, loan:after-LOAN_RATE*100, live:R*100, liveA:Ra*100};
+    return {d:r.d, from, left, pre, after, loan:after-LOAN_RATE*100, live:R*100, liveA:Ra*100, dO, dI, D:r.dep};
   });
 }
 function drawExpected(el, days, flows){
@@ -827,6 +832,7 @@ function drawExpected(el, days, flows){
   const EXP_LOAN=EXP_AFTER-LOAN_RATE*100;
   const yr=last.d.slice(0,4), left=(last.left).toFixed(2);     // exponent: share of the year at the backtest rate
   const sp=v=>`${v>=0?'+':'−'}${Math.abs(v).toFixed(2)}%`;
+  const usd2=v=>`${v<0?'−':''}$${Math.abs(v).toFixed(2)}`;
   const term=(v,cap)=>`<span class="t"><b>${esc(v)}</b>${cap?`<i>${esc(cap)}</i>`:''}</span>`;
   const vals=ser.flatMap(r=>[r.pre,r.after,r.loan]).concat([EXP_PRE,EXP_AFTER,EXP_LOAN,0]);
   let lo=Math.min(...vals), hi=Math.max(...vals); const pad=Math.max(1,(hi-lo)*0.15); lo=Math.floor(lo-pad); hi=Math.ceil(hi+pad);
@@ -861,11 +867,17 @@ function drawExpected(el, days, flows){
       <div class="row"><div class="lab">Tax on interest</div>
         <div class="f">${term('40.8%','ordinary')}<span class="op">+</span>${term('10.9%','NYS')}<span class="op">+</span>${term('3.88%','NYC')}</div>
         <div class="res">${((TAX_INT+TAX_NYC)*100).toFixed(1)}%</div></div>
+      <div class="row"><div class="lab">Backtest return after tax <span style="color:var(--muted)">· the backtest earned 86% of its return from options, 14% from interest</span></div>
+        <div class="f">${term(pc(EXP_PRE),'backtest')}<span class="op">× (1 − [</span>${term('86%','options')}<span class="op">×</span>${term(((TAX_OPT+TAX_NYC)*100).toFixed(1)+'%','options tax')}<span class="op">+</span>${term('14%','interest')}<span class="op">×</span>${term(((TAX_INT+TAX_NYC)*100).toFixed(1)+'%','interest tax')}<span class="op">])</span></div>
+        <div class="res">${pc(EXP_AFTER)}</div></div>
+      <div class="row"><div class="lab">Live return after tax <span style="color:var(--muted)">· since ${esc(shortDate(last.from))}, on ${fmtUsd(last.D)} invested</span></div>
+        <div class="f">${term(sp(last.live),'live')}<span class="op">− (</span>${term(usd2(last.dO),'options P&L')}<span class="op">×</span>${term(((TAX_OPT+TAX_NYC)*100).toFixed(1)+'%','')}<span class="op">+</span>${term(usd2(last.dI),'interest')}<span class="op">×</span>${term(((TAX_INT+TAX_NYC)*100).toFixed(1)+'%','')}<span class="op">) ÷</span>${term(fmtUsd(last.D),'invested')}</div>
+        <div class="res">${sp(last.liveA)}</div></div>
       <div class="row"><div class="lab">${yr} return, pre-tax <span style="color:var(--muted)">· live since ${esc(shortDate(last.from))}, backtest for the rest of the year</span></div>
-        <div class="f"><span class="op">(1 +</span>${term(sp(last.live),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_PRE),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
+        <div class="f"><span class="op">(1</span>${term(sp(last.live),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_PRE),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
         <div class="res" style="color:var(--accent)">${pc(last.pre)}</div></div>
       <div class="row"><div class="lab">${yr} return, after tax</div>
-        <div class="f"><span class="op">(1 +</span>${term(sp(last.liveA),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_AFTER),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
+        <div class="f"><span class="op">(1</span>${term(sp(last.liveA),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_AFTER),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
         <div class="res" style="color:var(--good)">${pc(last.after)}</div></div>
       <div class="row"><div class="lab">With a loan <span style="color:var(--muted)">· interest not deductible</span></div>
         <div class="f">${term(pc(last.after),'after tax')}<span class="op">−</span>${term(pc(LOAN_RATE*100),'RH '+pc(CASH_APY*100)+' + 2%')}</div>
