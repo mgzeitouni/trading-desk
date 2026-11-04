@@ -422,6 +422,8 @@ function drawVix(el, days){
 
 // The open spread's P&L each day (credit - cost to close, from daily_state.spread_mark) from the day it opened to
 // expiry, between its max profit and its stop. VIX and XSP sit behind it, faint, each on its own unlabelled scale.
+// Both are the values at the day's latest run (≈ the close for past days, live for today); VIX here is vix_live,
+// not daily_state.vix, which is the gate input (the previous day's close).
 // When flat, the section falls back to the VIX chart.
 const VIX_LG = `<span><i class="sw" style="background:var(--accent)"></i> VIX close</span>
   <span><i class="sw" style="background:var(--crit)"></i> 32 gate</span>
@@ -470,7 +472,7 @@ function drawPosition(el, days, t, asOf){
     const p=pts[pts.length-1];
     s+=`<circle cx="${xs(p.d)}" cy="${oy(+p[key])}" r="2.5" fill="${color}" opacity=".6"/><text x="${xs(p.d)+6}" y="${oy(+p[key])+3.5}" font-size="10" fill="${color}" opacity=".8" font-family="IBM Plex Mono,monospace">${label} ${(+p[key]).toFixed(dec)}</text>`;
   };
-  overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60]); overlay('vix','var(--ma)','VIX',2,0.2,[0.62,0.92]);
+  overlay('xsp','var(--muted)','XSP',0,0.03,[0.30,0.60]); overlay('vix_live','var(--ma)','VIX',2,0.2,[0.62,0.92]);
   s+=`<line x1="${L}" x2="${W-R}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--axis)"/>`;
   [[maxP,'var(--good)','max'],[stopP,'var(--crit)','stop']].forEach(([v,c,lab])=>{
     s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="${c}" stroke-width="1.5" stroke-dasharray="5 4"/><text x="${W-R+6}" y="${ys(v)+4}" font-size="10.5" fill="${c}" font-family="IBM Plex Mono,monospace">${lab} ${fmtPct(v)}</text>`;
@@ -488,7 +490,7 @@ function drawPosition(el, days, t, asOf){
     ch.setAttribute('x1',xs(r.d)); ch.setAttribute('x2',xs(r.d)); ch.setAttribute('opacity','1');
     showTip(`<b>${esc(fmtD(r.d))}</b><div class="r"><span>P&amp;L</span><span>${fmtPct(r.pnl)} · ${r.usd>=0?'+':''}${fmtUsd(r.usd)}</span></div>`
       + `<div class="r"><span>Cost to close</span><span>${fmt2(r.spread_mark)}</span></div>`
-      + (r.vix!=null?`<div class="r"><span>VIX close</span><span>${fmt2(r.vix)}</span></div>`:'')
+      + (r.vix_live!=null?`<div class="r"><span>VIX</span><span>${fmt2(r.vix_live)}</span></div>`:'')
       + (r.xsp!=null?`<div class="r"><span>XSP</span><span>${fmt2(r.xsp)}</span></div>`:''), b.left+b.width/2, b.top);
   }));
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
