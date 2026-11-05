@@ -84,7 +84,7 @@ h1{font-size:23px; font-weight:700; letter-spacing:-.02em; margin:0; text-wrap:b
 .dot{width:10px; height:10px; border-radius:50%; flex:none;}
 .verdict-title{font-weight:600; font-size:14px;}
 .verdict-why{grid-column:2; color:var(--ink-2); font-size:12px; overflow-wrap:anywhere;}
-.gates{display:grid; grid-template-columns:repeat(3,1fr);}
+.gates{display:grid; grid-template-columns:repeat(4,1fr);}
 .gate{padding:10px 14px 11px; border-right:1px solid var(--rule); min-width:0;}
 .gate:last-child{border-right:0;}
 .gate-h{display:flex; align-items:center; gap:6px; font-size:10.5px; letter-spacing:.07em;
@@ -261,7 +261,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
     <span class="pill mono planned" id="statusPill">PLANNED</span>
     <span class="stamp mono" id="stamp">loading…</span>
   </header>
-  <p class="sub">Monthly XSP put credit spread: 11% below the market, 5% wide, VIX-gated, 6× stop, rolled the Thursday before expiry. <a href="../strategy/">How it works</a></p>
+  <p class="sub">Monthly XSP put credit spread: 11% below the market, 5% wide, VIX-gated, 6× stop, rolled the Thursday before expiry. 70% deployed; the 30% cash reserve goes in after a 15% S&amp;P drop. <a href="../strategy/">How it works</a></p>
 
   <div class="health" id="health" hidden></div>
 
@@ -291,6 +291,12 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
         <div class="gate-v"><span class="mono" id="g3v">—</span><span class="vs" id="g3vs">account value</span></div>
         <div class="meter"><i id="g3bar" style="width:0"></i><span class="thr" style="left:50%"></span></div>
         <div class="gate-n" id="g3n">—</div>
+      </div>
+      <div class="gate">
+        <div class="gate-h"><span class="mark" id="g4m">·</span> Cash reserve</div>
+        <div class="gate-v"><span class="mono" id="g4v">—</span><span class="vs" id="g4vs">S&amp;P off 1-yr high</span></div>
+        <div class="meter"><i id="g4bar" style="width:0"></i><span class="thr" style="left:75%"></span></div>
+        <div class="gate-n" id="g4n">—</div>
       </div>
     </div>
   </section>
@@ -388,6 +394,7 @@ const RULES_FALLBACK = [
   {id:"gate", text:"Open a spread only if the prior VIX close is below 32, or VIX is at or below 75% of its 20-day closing high and below 60."},
   {id:"strikes", text:"Monthly XSP expiry 25–38 days out. Short put at or below 89% of XSP; long put 5% of XSP lower."},
   {id:"stop", text:"At ~3:45pm ET, buy back when the cost to close is at least 6× the credit received."},
+  {id:"reserve", text:"Size from 70% of capital; 30% stays in cash. For 6 months after the S&P 500 first closes 15% below its 1-year high, size from 100%."},
   {id:"roll", text:"On the last trading day before expiry, buy back the expiring spread and sell next month’s."},
   {id:"size", text:"Contracts = account value ÷ max loss per spread, rounded down, capped by the size setting."}];
 // v9 backtest monthly account returns, % (Jan 2007 – Oct 2026, $10k start, interest and fees included;
@@ -1168,7 +1175,23 @@ function renderSpread(t, pos, xsp){
     <div class="cap" style="margin:8px 0 0">${marksAsOf(pos)?`<b>Prices as of ${esc(marksAsOf(pos))}.</b> `:''}Cost to close uses the last recorded leg marks (mid); the 3:45pm stop check uses live quotes. “Stop hits near” is an estimate from today’s option prices and implied volatility, and moves when volatility moves. Open P&L is after $${fmt2(fees)} of entry fees, and the % is of the ${fmtUsd(coll)} collateral (the max loss); buying it back would cost about $${fmt2(FEE_LEG*2*qty)} more, expiring costs nothing.</div>`;
 }
 
+// Between bot runs, show XSP and VIX from Cboe's 15-min delayed quotes (snap.live, fetched by the dash function on each
+// load) on today's row, when they are from today and newer than the last run. The gate still uses the recorded close.
+function applyLive(snap){
+  const L=snap.live||{}, days=snap.days||[], d=days[days.length-1];
+  if(!d || d._live) return null;
+  const etDay=new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+  // the last run's time in ET, comparable with Cboe's ET timestamps ('YYYY-MM-DDTHH:MM:SS')
+  const hb=(snap.beats||[]).filter(b=>b.kind==='heartbeat').map(b=>b.ts).sort().pop();
+  const lastRunET=hb ? new Date(hb).toLocaleString('sv-SE',{timeZone:'America/New_York'}).replace(' ','T') : '';
+  const ok=q=>q && isFinite(q.v) && q.v>0 && (q.ts||'').slice(0,10)===etDay && d.d===etDay && q.ts>lastRunET;
+  let used=null;
+  if(ok(L.xsp)){ d.xsp_run=d.xsp; d.xsp=L.xsp.v; used=L.xsp.ts; }
+  if(ok(L.vix)){ d.vix_live_run=d.vix_live; d.vix_live=L.vix.v; used=used||L.vix.ts; }
+  d._live=used; return used;
+}
 function render(snap, storedAt){
+  applyLive(snap);
   const S=snap.strategy||{}, days=snap.days||[], d=days[days.length-1]||{};
   const A=snap.account||{}, V=snap.viewer||{};
   const cap = +A.contracts || 1, tgt = +A.target_contracts || 1;
@@ -1205,21 +1228,37 @@ function render(snap, storedAt){
   const xsp = d.xsp!=null ? +d.xsp : null;
   const oneLoss = xsp ? Math.floor(0.05*xsp+0.999)*100 - 40 : 3850;      // ≈ (width − credit) × 100
   const others = (snap.trades||[]).filter(t=>!t.close_date && t.leg!=='S').reduce((a,t)=>a+(+t.collateral||0),0);
-  const fits = Math.max(0, Math.min(cap, Math.floor((acct-others)/oneLoss)));
+  const share = d.deploy_share!=null ? +d.deploy_share : (A.deploy_share!=null ? +A.deploy_share : 1);   // cash reserve
+  const sizing = (acct-others)*share;
+  const fits = Math.max(0, Math.min(cap, Math.floor(sizing/oneLoss)));
   const mineOpen=(snap.trades||[]).find(t=>!t.close_date && t.leg==='S');
   if(mineOpen){ let nn={}; try{ nn=typeof mineOpen.note==='string'?JSON.parse(mineOpen.note):(mineOpen.note||{}); }catch{}
     setMark('g3m', true); $('g3v').textContent=fmtUsd(acct);
-    const nextFits=Math.max(0, Math.min(cap, Math.floor((acct-others)/oneLoss)));
-    $('g3n').textContent=`${nn.qty||1} spread${(nn.qty||1)>1?'s':''} open · next roll sizes to ${nextFits} at today’s value (cap ${cap})`;
+    $('g3n').textContent=`${nn.qty||1} spread${(nn.qty||1)>1?'s':''} open · next roll sizes to ${fits} at today’s value${share<1?` (${Math.round(share*100)}% deployed)`:''} (cap ${cap})`;
     const b=$('g3bar'); b.style.width=Math.min(100,(acct-others)/(2*oneLoss)*100)+'%'; b.style.background='var(--good)'; }
   else {
   setMark('g3m', fits>=1);
   $('g3v').textContent = fmtUsd(acct);
-  $('g3n').textContent = fits>=1 ? `${fits} spread${fits>1?'s':''} at about ${fmtUsd(oneLoss)} max loss each${others?` (after ${fmtUsd(others)} held by other trades)`:''} · cap ${cap}`
+  $('g3n').textContent = fits>=1 ? `${fits} spread${fits>1?'s':''} at about ${fmtUsd(oneLoss)} max loss each${share<1?` from ${Math.round(share*100)}% of the account`:''}${others?` (after ${fmtUsd(others)} held by other trades)`:''} · cap ${cap}`
                                  : `${fmtUsd(oneLoss-(acct-others))} short of one spread’s ~${fmtUsd(oneLoss)} max loss`;
   { const b=$('g3bar'); b.style.width=Math.min(100,(acct-others)/(2*oneLoss)*100)+'%'; b.style.background=fits>=1?'var(--good)':'var(--crit)'; }
   }
 
+  { // cash reserve: S&P 500 vs its 1-year closing high; the reserve goes in for 6 months after a first close 15% below it
+    const spx=d.spx!=null?+d.spx:null, hi=d.spx_hi252!=null?+d.spx_hi252:null, trig=d.crash_trigger||null;
+    const base = A.deploy_share!=null ? +A.deploy_share : 1, m=$('g4m');
+    const md_=x=>new Date(x+'T12:00:00').toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'});
+    if(spx==null||hi==null){ m.textContent='·'; m.style.color='var(--muted)'; $('g4v').textContent='—'; $('g4n').textContent=`${Math.round(base*100)}% deployed · S&P level recorded from the next run`; }
+    else {
+      const dd=(spx/hi-1)*100; $('g4v').textContent=`${dd>-0.05?'0.0':dd.toFixed(1)}%`;
+      if(trig){ const e=new Date(trig+'T12:00:00'); e.setMonth(e.getMonth()+6);
+        m.textContent='✓'; m.style.color='var(--accent)';
+        $('g4n').textContent=`In: 100% deployed to ${md_(e.toISOString().slice(0,10))} (−15% on ${md_(trig)})`; }
+      else { m.textContent='–'; m.style.color='var(--muted)';
+        $('g4n').textContent=`${Math.round((1-base)*100)}% cash held · in at −15% (S&P ${Math.round(0.85*hi).toLocaleString('en-US')})`; }
+      const b=$('g4bar'); b.style.width=Math.min(100,Math.max(0,-dd)/20*100)+'%'; b.style.background=trig?'var(--accent)':'var(--muted)';
+    }
+  }
   document.querySelectorAll('.gate').forEach(g=>{ g.title=g.querySelector('.gate-n').textContent; });   // full note on hover (truncated or hidden in the strip)
 
   const mine=(snap.trades||[]).find(t=>!t.close_date && t.leg==='S');
@@ -1230,7 +1269,8 @@ function render(snap, storedAt){
   else { dot.style.background='var(--crit)'; $('vh').textContent='Standing aside — VIX gate closed'; $('vWhy').textContent=d.gate_reason||`VIX is at or above ${VIX_MAX}.`; }
 
   $('acctVal').textContent = fmtUsd(acct);
-  $('acctNote').textContent = d.d ? `Cash ${fmtUsd(+d.cash||0)}${xsp?` · XSP ${fmt2(xsp)}`:''} · ${(S.status||'').replace('_',' ')} · last check ${d.d}` : '';
+  const liveAt = d._live ? (([h,m])=>`${(+h%12)||12}:${m}${+h<12?'am':'pm'}`)(d._live.slice(11,16).split(':')) : null;   // Cboe times are ET
+  $('acctNote').textContent = d.d ? `Cash ${fmtUsd(+d.cash||0)}${xsp?` · XSP ${fmt2(xsp)}${liveAt?` (Cboe ${liveAt}, 15-min delay)`:''}`:''} · ${(S.status||'').replace('_',' ')} · last check ${d.d}` : '';
   const base = BASE_MULT*oneLoss*tgt, above = acct-base;                   // base to keep = 1.4 × one spread's collateral × target contracts
   $('baseVal').textContent = fmtUsd(base);
   $('baseNote').textContent = `${tgt} contract${tgt>1?'s':''} × ${BASE_MULT} × ~${fmtUsd(oneLoss)} collateral${xsp?` at XSP ${fmt2(xsp)}`:''}`;
