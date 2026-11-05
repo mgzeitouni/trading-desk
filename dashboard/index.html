@@ -801,9 +801,9 @@ const EXP_PRE = BT.cagr;                          // 18.5: v9 backtest, fees and
 const BT_INT_SHARE = 0.14;
 const TAX_BLEND = (1-BT_INT_SHARE)*(TAX_OPT+TAX_NYC) + BT_INT_SHARE*(TAX_INT+TAX_NYC);
 const EXP_AFTER = +(BT.cagr * (1-TAX_BLEND)).toFixed(1);
-// Loan-funded: borrow the strategy's capital at a floating rate = Robinhood's cash yield + 2%, interest not deductible
-// (per Morris's CPA), so the net yield on the loan = after-tax return − loan rate. Uses today's rate for every day.
-const LOAN_SPREAD = 0.02, LOAN_RATE = CASH_APY + LOAN_SPREAD;
+// Loan-funded: securities-based line at a promo rate fixed for one year (floats after that;
+// update LOAN_RATE then). Interest not deductible (per Morris's CPA), so net yield on the loan = after-tax return − rate.
+const LOAN_RATE = 0.054, LOAN_LABEL = 'LAL fixed to Nov 2027';
 function expSeries(days, flows){
   // This calendar year: live results so far this year, and the backtest rate for every part of the year without them.
   //   E = (1 + R_ytd) × (1 + p)^(share of year not live) − 1
@@ -883,7 +883,7 @@ function drawExpected(el, days, flows){
         <div class="f"><span class="op">(1</span>${term(sp(last.liveA),'live')}<span class="op">) × (1 +</span>${term(pc(EXP_AFTER),'backtest')}<span class="op">)<sup>${left}</sup> − 1</span></div>
         <div class="res" style="color:var(--good)">${pc(last.after)}</div></div>
       <div class="row"><div class="lab">With a loan <span style="color:var(--muted)">· interest not deductible</span></div>
-        <div class="f">${term(pc(last.after),'after tax')}<span class="op">−</span>${term(pc(LOAN_RATE*100),'RH '+pc(CASH_APY*100)+' + 2%')}</div>
+        <div class="f">${term(pc(last.after),'after tax')}<span class="op">−</span>${term(pc(LOAN_RATE*100),LOAN_LABEL)}</div>
         <div class="res" style="color:var(--ma)">${pc(last.loan)}</div></div>
     </div>
     <p class="cap" style="margin:8px 0 0">Each line is this calendar year: actual results so far this year, plus the backtest rate for the rest of the year (in the first year, also for the months before the account started). It resets on Jan 1. Federal rates include the 3.8% investment income tax. An estimate, not a forecast.</p>`;
