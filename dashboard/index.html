@@ -393,7 +393,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
 const RULES_FALLBACK = [
   {id:"gate", text:"Open a spread only if the prior VIX close is below 32, or VIX is at or below 75% of its 20-day closing high and below 60."},
   {id:"strikes", text:"Monthly XSP expiry 25–38 days out. Short put at or below 89% of XSP; long put 5% of XSP lower."},
-  {id:"stop", text:"At ~3:45pm ET, buy back when the cost to close is at least 6× the credit received."},
+  {id:"stop", text:"At the ~3:45pm ET check, cost to close at least 6× the credit triggers the stop; the spread is bought back at the next trading day's ~3:45pm run."},
   {id:"reserve", text:"Size from 70% of capital; 30% stays in cash. For 6 months after the S&P 500 first closes 15% below its 1-year high, size from 100%."},
   {id:"roll", text:"On the last trading day before expiry, buy back the expiring spread and sell next month’s."},
   {id:"size", text:"Contracts = account value ÷ max loss per spread, rounded down, capped by the size setting."}];
