@@ -808,9 +808,8 @@ const EXP_PRE = BT.cagr;                          // 18.5: v9 backtest, fees and
 const BT_INT_SHARE = 0.14;
 const TAX_BLEND = (1-BT_INT_SHARE)*(TAX_OPT+TAX_NYC) + BT_INT_SHARE*(TAX_INT+TAX_NYC);
 const EXP_AFTER = +(BT.cagr * (1-TAX_BLEND)).toFixed(1);
-// Loan-funded: securities-based line at a promo rate fixed for one year (floats after that;
-// update LOAN_RATE then). Interest not deductible (per Morris's CPA), so net yield on the loan = after-tax return − rate.
-const LOAN_RATE = 0.054, LOAN_LABEL = 'LAL fixed to Nov 2027';
+// Loan-funded: securities-based line at a floating rate (update LOAN_RATE when it changes). Interest not deductible (per Morris's CPA), so net yield on the loan = after-tax return − rate.
+const LOAN_RATE = 0.055, LOAN_LABEL = 'LAL floating rate';
 function expSeries(days, flows){
   // This calendar year: live results so far this year, and the backtest rate for every part of the year without them.
   //   E = (1 + R_ytd) × (1 + p)^(share of year not live) − 1
