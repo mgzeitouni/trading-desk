@@ -425,13 +425,23 @@ const hideTip=()=>{tip.style.opacity=0; tip.setAttribute('aria-hidden','true');}
 function drawVix(el, days){
   const rows = days.filter(r=>r.vix!=null).slice(-60);
   if(rows.length<2){ el.innerHTML='<div class="empty" style="padding:12px 0 4px"><b>Not enough history yet</b>The chart fills in as the bot records daily VIX closes.</div>'; return; }
-  const W=640,H=200,L=40,R=12,T=12,B=28, n=rows.length;
+  const W=640,H=200,L=40,R=52,T=12,B=28, n=rows.length;
   const re = rows.map(r=> r.vix_hi20!=null ? RE_FRAC*(+r.vix_hi20) : null);
   const vals = rows.map(r=>+r.vix).concat([VIX_MAX], re.filter(v=>v!=null));
   const lo=Math.max(0,Math.floor(Math.min(...vals)/5)*5-2), hi=Math.ceil(Math.max(...vals)/5)*5+2;
   const xs=i=>L+i*(W-L-R)/(n-1), ys=v=>T+(hi-v)/(hi-lo)*(H-T-B);
-  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="VIX daily close against the 32 gate and the re-entry level">`;
+  let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="VIX daily close against the 32 gate and the re-entry level, with XSP on the right-hand scale">`;
   for(let v=Math.ceil(lo/5)*5; v<=hi; v+=5) s+=`<line x1="${L}" x2="${W-R}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--grid)"/><text x="${L-7}" y="${ys(v)+4}" text-anchor="end" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${v}</text>`;
+  // XSP (the day's latest run, ≈ the close) on its own right-hand scale, faint, drawn under the VIX line
+  const xp=rows.map(r=>r.xsp!=null?+r.xsp:null), xv=xp.filter(v=>v!=null);
+  let yx=null;
+  if(xv.length>1){
+    const xmid=(Math.min(...xv)+Math.max(...xv))/2, xhalf=Math.max((Math.max(...xv)-Math.min(...xv))/2*1.1, xmid*0.02), xa=xmid-xhalf, xb=xmid+xhalf;
+    yx=v=>T+(xb-v)/(xb-xa)*(H-T-B);
+    const xstep=[5,10,20,25,50,100].find(st=>(xb-xa)/st<=4)||200;
+    for(let v=Math.ceil(xa/xstep)*xstep; v<=xb; v+=xstep) s+=`<text x="${W-R+7}" y="${yx(v)+4}" font-size="10.5" fill="var(--muted)" opacity=".8" font-family="IBM Plex Mono,monospace">${v}</text>`;
+    s+=`<path d="${xp.map((v,i)=>v==null?'':`${(i&&xp[i-1]!=null)?'L':'M'}${xs(i).toFixed(1)},${yx(v).toFixed(1)}`).join('')}" fill="none" stroke="var(--muted)" stroke-width="1.5" opacity=".55" stroke-linejoin="round"/>`;
+  }
   s+=`<line x1="${L}" x2="${W-R}" y1="${ys(VIX_MAX)}" y2="${ys(VIX_MAX)}" stroke="var(--crit)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
   const rp = re.map((v,i)=>v==null?'':`${(i&&re[i-1]!=null)?'L':'M'}${xs(i).toFixed(1)},${ys(v).toFixed(1)}`).join('');
   if(rp) s+=`<path d="${rp}" fill="none" stroke="var(--ma)" stroke-width="1.5" stroke-dasharray="2 3"/>`;
@@ -440,6 +450,7 @@ function drawVix(el, days){
   [0,Math.floor((n-1)/2),n-1].forEach(i=>{ s+=`<text x="${xs(i)}" y="${H-B+17}" text-anchor="${i===0?'start':i===n-1?'end':'middle'}" font-size="10.5" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fmtD(rows[i].d)}</text>`; });
   const last=rows[n-1];
   s+=`<circle cx="${xs(n-1)}" cy="${ys(+last.vix)}" r="4.5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
+  if(yx && last.xsp!=null) s+=`<circle cx="${xs(n-1)}" cy="${yx(+last.xsp)}" r="3" fill="var(--muted)" opacity=".7"/>`;
   s+=`<line class="vx-ch" x1="0" x2="0" y1="${T}" y2="${H-B}" stroke="var(--axis)" opacity="0"/>`;
   const w=(W-L-R)/(n-1);
   rows.forEach((r,i)=>{ s+=`<rect class="hit" x="${xs(i)-w/2}" y="${T}" width="${w}" height="${H-T-B}" data-i="${i}"/>`; });
@@ -450,7 +461,8 @@ function drawVix(el, days){
     ch.setAttribute('x1',xs(i)); ch.setAttribute('x2',xs(i)); ch.setAttribute('opacity','1');
     showTip(`<b>${esc(fmtD(r.d))}</b><div class="r"><span>VIX close</span><span>${fmt2(r.vix)}</span></div>`
       + (r.vix_hi20!=null?`<div class="r"><span>20-day high</span><span>${fmt2(r.vix_hi20)}</span></div><div class="r"><span>Re-entry at</span><span>${fmt2(RE_FRAC*r.vix_hi20)}</span></div>`:'')
-      + (r.gate_ok!=null?`<div class="r"><span>Gate</span><span>${r.gate_ok?'open':'closed'}</span></div>`:''), b.left+b.width/2, b.top);
+      + (r.gate_ok!=null?`<div class="r"><span>Gate</span><span>${r.gate_ok?'open':'closed'}</span></div>`:'')
+      + (r.xsp!=null?`<div class="r"><span>XSP</span><span>${fmt2(r.xsp)}</span></div>`:''), b.left+b.width/2, b.top);
   }));
   svg.addEventListener('pointerleave',()=>{ch.setAttribute('opacity','0'); hideTip();});
 }
@@ -462,7 +474,8 @@ function drawVix(el, days){
 // When flat, the section falls back to the VIX chart.
 const VIX_LG = `<span><i class="sw" style="background:var(--accent)"></i> VIX close</span>
   <span><i class="sw" style="background:var(--crit)"></i> 32 gate</span>
-  <span><i class="sw" style="background:var(--ma)"></i> re-entry level (75% of 20-day high)</span>`;
+  <span><i class="sw" style="background:var(--ma)"></i> re-entry level (75% of 20-day high)</span>
+  <span style="opacity:.75"><i class="sw" style="background:var(--muted)"></i> XSP (right scale)</span>`;
 // ---- Bot health line: did each scheduled run (9:40 decide, 10:45, 1:45, 3:45 ET on trading days) report back?
 // Heartbeats are activity rows "run complete phase=<slot>". A slot counts as missed 25 minutes after its time.
 const RUN_SLOTS=[['decide',9*60+40],['am',10*60+45],['pm',13*60+45],['final',15*60+45]];
@@ -515,7 +528,7 @@ function marksAsOf(pos){
   return new Date(ts).toLocaleString('en-US',{timeZone:'America/New_York',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+' ET';
 }
 function drawPosition(el, days, t, asOf, runs){
-  if(!t){ $('chartH').textContent='VIX, last 60 days'; $('chartLg').innerHTML=VIX_LG; drawVix(el, days); return; }
+  if(!t){ $('chartH').textContent='No spread open · VIX and XSP, last 60 days'; $('chartLg').innerHTML=VIX_LG; drawVix(el, days); return; }
   let nt={}; try{ nt = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
   const credit=+(nt.credit ?? t.credit ?? 0), mult=100*(+(nt.qty||1));
   // P&L as % of the credit (the max profit), so the chart reads the same at any contract count: +100% = expires
@@ -1260,7 +1273,8 @@ function render(snap, storedAt){
   }
   document.querySelectorAll('.gate').forEach(g=>{ g.title=g.querySelector('.gate-n').textContent; });   // full note on hover (truncated or hidden in the strip)
 
-  const mine=(snap.trades||[]).find(t=>!t.close_date && t.leg==='S');
+  // the newest open v9 spread: after a close the chart falls back to VIX + XSP; after a roll it starts over on the new spread
+  const mine=(snap.trades||[]).filter(t=>!t.close_date && t.leg==='S').sort((a,b)=>a.open_date<b.open_date?1:-1)[0];
   const dot=$('vDot');
   if(mine){ dot.style.background='var(--accent)'; $('vh').textContent='Spread open'; $('vWhy').textContent=mine.structure; }
   else if(gateOk&&fits>=1){ dot.style.background='var(--good)'; $('vh').textContent='Clear to open a spread'; $('vWhy').textContent=d.gate_reason||'Gate open and the collateral is there.'; }
@@ -1610,7 +1624,7 @@ async function refresh(){
     setConn('!','--warn',`<b>Live read failed.</b> ${esc(e.message)}`); liveUnavailable('The live read did not complete.');
   }
 }
-// ---- Demo mode, local copies only: http://localhost:8765/dashboard/?demo (add &days=N for a longer history).
+// ---- Demo mode, local copies only: http://localhost:8765/dashboard/?demo (add &days=N for a longer history, &flat for no open spread).
 // Generated data in the snapshot's shape; nothing is sent to the server and the saved login is untouched.
 const DEMO = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('demo');
 function demoSnapshot(){
@@ -1631,6 +1645,7 @@ function demoSnapshot(){
   const t = {id:1, leg:'S', structure:`SELL XSP P${short}/${long} ${expiry}`, open_date:open, close_date:null, credit, collateral:(short-long-credit)*100, fees:0.78,
     note:JSON.stringify({qty:1, short, long, credit, expiry, id_short:'S', id_long:'L'})};
   const last = runs[runs.length-1] || {cost:credit};
+  if(new URLSearchParams(location.search).has('flat')) t.close_date = today;   // ?demo&flat: no spread open
   return {strategy:{status:'live', rules:[]}, account:{id:'demo', display_name:'Demo', contracts:10, target_contracts:1, rh_account_number:null},
     days, positions:[{rh_option_id:'S', mark:last.cost+0.38, updated_at:now.toISOString()},{rh_option_id:'L', mark:0.38, updated_at:now.toISOString()}],
     trades:[t], activity:[], pending:[], flows:[{d:days[0].d, amount:5000, kind:'manual'}], interest:[{d:today.slice(0,8)+'02', amount:3.02}],
