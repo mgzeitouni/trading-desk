@@ -68,6 +68,9 @@ h1{font-size:23px; font-weight:700; letter-spacing:-.02em; margin:0; text-wrap:b
 .sub{color:var(--ink-2); margin:0 0 16px; max-width:66ch;}
 .sub a{color:var(--accent);}
 .stamp{margin-left:auto; font-size:11.5px; color:var(--muted);}
+.rf{align-self:center; border:1px solid var(--grid); background:var(--surface); color:var(--ink-2); border-radius:8px; font:15px/1 inherit;
+  min-width:34px; height:30px; padding:0 8px; cursor:pointer;}
+.rf:active{transform:rotate(90deg);}
 .health{display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:9px 14px; margin:0 0 14px; border-radius:8px;
   background:var(--surface); border:1px solid var(--rule); font-size:12.5px; color:var(--ink-2);}
 .health .hd{display:inline-flex; align-items:center; gap:7px; color:var(--ink); font-weight:600;}
@@ -266,6 +269,7 @@ input.f.num{width:84px;font-family:"IBM Plex Mono",monospace}
     <span class="pill mono">v9</span>
     <span class="pill mono planned" id="statusPill">PLANNED</span>
     <span class="stamp mono" id="stamp">loading…</span>
+    <button type="button" class="rf" id="rfBtn" title="Reload the page and data" aria-label="Refresh">↻</button>
   </header>
   <p class="sub">Monthly XSP put credit spread: 11% below the market, 5% wide, VIX-gated, 6× stop, rolled the Thursday before expiry. 70% deployed; the 30% cash reserve goes in after a 15% S&amp;P drop. <a href="../strategy/">How it works</a></p>
 
@@ -1669,6 +1673,17 @@ if(DEMO){
   start(); setConn('·','--warn','<b>Demo data.</b> Generated locally; nothing here is real and nothing is sent.');
 } else if(SESSION && SESSION.token) start(); else signOut();
 setInterval(refresh, 120000);
+// Home-screen app: no browser reload button, and it resumes where it left off. The ↻ button reloads everything;
+// coming back to the app re-reads the data, and after 6 hours reloads the page so new dashboard code is picked up.
+const LOADED_AT = Date.now(); let LAST_VIS = Date.now();
+$('rfBtn').addEventListener('click', () => location.reload());
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'visible') return;
+  if(Date.now() - LOADED_AT > 6*36e5) return location.reload();
+  if(Date.now() - LAST_VIS > 30e3) refresh();
+  LAST_VIS = Date.now();
+});
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') LAST_VIS = Date.now(); });
 </script>
 </body>
 </html>
