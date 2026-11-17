@@ -1152,7 +1152,11 @@ function spreadVsBt(now, k){
     <p class="cap" style="margin:4px 0 0">Bar: backtest spreads with ${k} trading days left, 2007–2026 — dark = middle half, light = middle 80%, tick = median; blue = this spread. All ${fin.length} backtest spreads finished at a median ${s(fmed)}, ${flost}% lost money. Values along the way are at mid, like this spread’s; final results include the cost of buying back at the roll.</p></div>`;
 }
 let STOP_XSP = null;
-function renderSpread(t, pos, xsp){
+// % change of XSP against a reference level (prior close, or XSP when the spread opened)
+const pctOf=(v,ref)=>(v&&ref)?(v/ref-1)*100:null;
+const pctTxt=(v,ref,extra='')=>{const p=pctOf(v,ref); return p==null?'—':`${p>=0?'+':'−'}${Math.abs(p).toFixed(2)}%${extra}`;};
+const pctCls=(v,ref)=>{const p=pctOf(v,ref); return p==null?'':(p<0?'neg':'pos');};
+function renderSpread(t, pos, xsp, prevClose, openXsp){
   const el=$('spreadWrap'); STOP_XSP = null;
   if(!t){ el.innerHTML=`<div class="empty"><b>No spread open</b>The bot proposes one at 9:40 ET when the gate is open and the account can post the collateral.</div>`; return; }
   let n={}; try{ n = typeof t.note==='string' ? JSON.parse(t.note) : (t.note||{}); }catch{}
@@ -1179,6 +1183,8 @@ function renderSpread(t, pos, xsp){
       ${kv('Stop at 6×', fmt2(stop))}
       ${kv('Open P&L, net of fees', pnl!=null?(pnl>=0?'+':'−')+'$'+fmt2(Math.abs(pnl))+(coll>0?` <span style="opacity:.75">(${pnl>=0?'+':'−'}${Math.abs(pnl/coll*100).toFixed(2)}%)</span>`:''):'—', pnl!=null?(pnl<0?'neg':'pos'):'')}
       ${kv('XSP above short', dist!=null?`${dist.toFixed(1)}%`:'—', dist!=null&&dist<3?'neg':'')}
+      ${kv('XSP today', pctTxt(xsp, prevClose), pctCls(xsp, prevClose))}
+      ${kv('XSP since open', pctTxt(xsp, openXsp, openXsp?`<span class="sn" style="display:block;font-weight:400">from ${fmt2(openXsp)}</span>`:''), pctCls(xsp, openXsp))}
       ${kv('Max loss', fmtUsd(coll))}
       ${kv('Expiry', n.expiry?esc(shortDate(n.expiry)):'—')}
       ${kv('Roll on', n.expiry?esc(shortDate(rollDate(n.expiry)))+' · 3:45pm':'—')}
@@ -1310,7 +1316,16 @@ function render(snap, storedAt){
   drawLoan($('loanWrap'), snap.loan||[], days, snap.flows||[]);
 
   const pos=snap.positions||[];
-  renderSpread(mine, pos, xsp);
+  // XSP today: vs Cboe's prior close when its quote is from today, else vs the previous day's last run.
+  // XSP since open: the spread's opening run (its last run on the open date = the 3:45pm entry), else that day's row.
+  const Lx=(snap.live||{}).xsp, etNow=new Date().toLocaleDateString('en-CA',{timeZone:'America/New_York'});
+  const prevClose = (Lx && Lx.prev>0 && (Lx.ts||'').slice(0,10)===etNow) ? +Lx.prev
+                  : (days.length>1 && days[days.length-2].xsp!=null ? +days[days.length-2].xsp : null);
+  let openXsp=null;
+  if(mine){ const r0=(snap.runs||[]).filter(r=>r.d===mine.open_date && r.xsp!=null).sort((a,b)=>a.ts<b.ts?-1:1).pop();
+    const d0=days.find(r=>r.d===mine.open_date);
+    openXsp = r0 ? +r0.xsp : (d0&&d0.xsp!=null ? +(d0.xsp_run??d0.xsp) : null); }
+  renderSpread(mine, pos, xsp, prevClose, openXsp);
   drawPosition($('vixWrap'), days, mine, marksAsOf(pos), snap.runs||[]);   // after the card: uses its stop estimate
   $('posWrap').innerHTML = pos.length
     ? `<table><thead><tr><th>Leg</th><th>Contract</th><th>Side</th><th class="num">Qty</th><th class="num">Open</th><th class="num">Mark</th></tr></thead><tbody>`
