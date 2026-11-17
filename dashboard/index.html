@@ -1155,6 +1155,7 @@ let STOP_XSP = null;
 // % change of XSP against a reference level (prior close, or XSP when the spread opened)
 const pctOf=(v,ref)=>(v&&ref)?(v/ref-1)*100:null;
 const pctTxt=(v,ref,extra='')=>{const p=pctOf(v,ref); return p==null?'—':`${p>=0?'+':'−'}${Math.abs(p).toFixed(2)}%${extra}`;};
+const fromTo=(ref,v)=>(ref&&v)?`<span class="sn" style="display:block;font-weight:400">${fmt2(ref)} → ${fmt2(v)}</span>`:'';
 const pctCls=(v,ref)=>{const p=pctOf(v,ref); return p==null?'':(p<0?'neg':'pos');};
 function renderSpread(t, pos, xsp, prevClose, openXsp){
   const el=$('spreadWrap'); STOP_XSP = null;
@@ -1183,8 +1184,8 @@ function renderSpread(t, pos, xsp, prevClose, openXsp){
       ${kv('Stop at 6×', fmt2(stop))}
       ${kv('Open P&L, net of fees', pnl!=null?(pnl>=0?'+':'−')+'$'+fmt2(Math.abs(pnl))+(coll>0?` <span style="opacity:.75">(${pnl>=0?'+':'−'}${Math.abs(pnl/coll*100).toFixed(2)}%)</span>`:''):'—', pnl!=null?(pnl<0?'neg':'pos'):'')}
       ${kv('XSP above short', dist!=null?`${dist.toFixed(1)}%`:'—', dist!=null&&dist<3?'neg':'')}
-      ${kv('XSP today', pctTxt(xsp, prevClose), pctCls(xsp, prevClose))}
-      ${kv('XSP since open', pctTxt(xsp, openXsp, openXsp?`<span class="sn" style="display:block;font-weight:400">from ${fmt2(openXsp)}</span>`:''), pctCls(xsp, openXsp))}
+      ${kv('XSP today', pctTxt(xsp, prevClose, fromTo(prevClose, xsp)), pctCls(xsp, prevClose))}
+      ${kv('XSP since open', pctTxt(xsp, openXsp, fromTo(openXsp, xsp)), pctCls(xsp, openXsp))}
       ${kv('Max loss', fmtUsd(coll))}
       ${kv('Expiry', n.expiry?esc(shortDate(n.expiry)):'—')}
       ${kv('Roll on', n.expiry?esc(shortDate(rollDate(n.expiry)))+' · 3:45pm':'—')}
